@@ -20,20 +20,24 @@ export const getShiftTimes = async (req, res) => {
 
 export const upsertShiftTimes = async (req, res) => {
   try {
-    const dayStart = normalizeTime(req.body?.dayStart);
-    const dayEnd = normalizeTime(req.body?.dayEnd);
-    const nightStart = normalizeTime(req.body?.nightStart);
-    const nightEnd = normalizeTime(req.body?.nightEnd);
-
-    if (!dayStart || !dayEnd || !nightStart || !nightEnd) {
-      return res.status(400).json({ message: 'All shift times are required' });
+    const fields = [
+      'manpowerDayStart', 'manpowerDayEnd', 'manpowerNightStart', 'manpowerNightEnd',
+      'permanentDayStart', 'permanentDayEnd', 'permanentNightStart', 'permanentNightEnd',
+      'manpowerDayOtStart', 'manpowerDayOtEnd', 'manpowerNightOtStart', 'manpowerNightOtEnd',
+      'permanentDayOtStart', 'permanentDayOtEnd', 'permanentNightOtStart', 'permanentNightOtEnd'
+    ];
+    
+    const payload = {};
+    for (const field of fields) {
+      const val = normalizeTime(req.body?.[field]);
+      if (!val) {
+        return res.status(400).json({ message: `All shift and OT times are required (${field} is missing)` });
+      }
+      if (!isValidTime(val)) {
+        return res.status(400).json({ message: `Shift and OT times must be in HH:mm format (${field} is invalid)` });
+      }
+      payload[field] = val;
     }
-
-    if (![dayStart, dayEnd, nightStart, nightEnd].every(isValidTime)) {
-      return res.status(400).json({ message: 'Shift times must be in HH:mm format' });
-    }
-
-    const payload = { dayStart, dayEnd, nightStart, nightEnd };
 
     let shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 });
     if (shiftTimes) {

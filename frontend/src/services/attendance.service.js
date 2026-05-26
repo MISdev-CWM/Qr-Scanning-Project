@@ -141,6 +141,13 @@ export const getDailySummary = async (date) => {
   return response.data
 }
 
+export const getOTSummary = async (date) => {
+  const response = await api.get('/api/attendance/ot-summary', {
+    params: { date },
+  })
+  return response.data
+}
+
 export const getRecentAttendanceLogs = async (limit = 10) => {
   const response = await api.get('/api/attendance/recent', {
     params: { limit },

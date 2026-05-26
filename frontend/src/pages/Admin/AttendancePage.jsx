@@ -55,10 +55,14 @@ export const AttendancePage = () => {
   const [isShiftOpen, setIsShiftOpen] = useState(false)
   const [isShiftSaving, setIsShiftSaving] = useState(false)
   const [shiftForm, setShiftForm] = useState({
-    dayStart: '',
-    dayEnd: '',
-    nightStart: '',
-    nightEnd: '',
+    manpowerDayStart: '',
+    manpowerDayEnd: '',
+    manpowerNightStart: '',
+    manpowerNightEnd: '',
+    permanentDayStart: '',
+    permanentDayEnd: '',
+    permanentNightStart: '',
+    permanentNightEnd: '',
   })
 
   const fetchSummary = async () => {
@@ -138,10 +142,14 @@ export const AttendancePage = () => {
 
   const openShiftModal = () => {
     setShiftForm({
-      dayStart: shiftTimes?.dayStart || '',
-      dayEnd: shiftTimes?.dayEnd || '',
-      nightStart: shiftTimes?.nightStart || '',
-      nightEnd: shiftTimes?.nightEnd || '',
+      manpowerDayStart: shiftTimes?.manpowerDayStart || '',
+      manpowerDayEnd: shiftTimes?.manpowerDayEnd || '',
+      manpowerNightStart: shiftTimes?.manpowerNightStart || '',
+      manpowerNightEnd: shiftTimes?.manpowerNightEnd || '',
+      permanentDayStart: shiftTimes?.permanentDayStart || '',
+      permanentDayEnd: shiftTimes?.permanentDayEnd || '',
+      permanentNightStart: shiftTimes?.permanentNightStart || '',
+      permanentNightEnd: shiftTimes?.permanentNightEnd || '',
     })
     setIsShiftOpen(true)
   }
@@ -160,15 +168,15 @@ export const AttendancePage = () => {
   }
 
   const saveShiftTimes = async () => {
-    const { dayStart, dayEnd, nightStart, nightEnd } = shiftForm
-    if (!dayStart || !dayEnd || !nightStart || !nightEnd) {
+    const values = Object.values(shiftForm)
+    if (values.some(v => !v)) {
       showToast('Please fill all shift times', 'warning')
       return
     }
 
     setIsShiftSaving(true)
     try {
-      const updated = await upsertShiftTimes({ dayStart, dayEnd, nightStart, nightEnd })
+      const updated = await upsertShiftTimes(shiftForm)
       setShiftTimes(updated)
       showToast('Shift times updated', 'success')
       setIsShiftOpen(false)
@@ -317,12 +325,10 @@ export const AttendancePage = () => {
     },
   ]
 
-  const dayWindow = isShiftLoading
-    ? 'Loading...'
-    : formatShiftWindow(shiftTimes?.dayStart, shiftTimes?.dayEnd)
-  const nightWindow = isShiftLoading
-    ? 'Loading...'
-    : formatShiftWindow(shiftTimes?.nightStart, shiftTimes?.nightEnd)
+  const permDay = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentDayStart, shiftTimes?.permanentDayEnd)
+  const permNight = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentNightStart, shiftTimes?.permanentNightEnd)
+  const manDay = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerDayStart, shiftTimes?.manpowerDayEnd)
+  const manNight = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerNightStart, shiftTimes?.manpowerNightEnd)
 
   return (
     <DashboardLayout>
@@ -362,12 +368,18 @@ export const AttendancePage = () => {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-              <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700">
-                <span className="font-medium">Day:</span>
-                <Badge variant="outline">{dayWindow}</Badge>
-                <span className="font-medium">Night:</span>
-                <Badge variant="outline">{nightWindow}</Badge>
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div className="flex flex-col gap-2 text-sm text-slate-700">
+                <div className="flex items-center gap-3">
+                  <span className="font-medium w-24">Permanent:</span>
+                  <Badge variant="outline">Day: {permDay}</Badge>
+                  <Badge variant="outline">Night: {permNight}</Badge>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-medium w-24">Manpower:</span>
+                  <Badge variant="outline">Day: {manDay}</Badge>
+                  <Badge variant="outline">Night: {manNight}</Badge>
+                </div>
               </div>
 
               <Button
@@ -396,32 +408,64 @@ export const AttendancePage = () => {
         onClose={closeShiftModal}
         title="Shift Times"
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-              label="Day Start"
-              type="time"
-              value={shiftForm.dayStart}
-              onChange={handleShiftChange('dayStart')}
-            />
-            <Input
-              label="Day End"
-              type="time"
-              value={shiftForm.dayEnd}
-              onChange={handleShiftChange('dayEnd')}
-            />
-            <Input
-              label="Night Start"
-              type="time"
-              value={shiftForm.nightStart}
-              onChange={handleShiftChange('nightStart')}
-            />
-            <Input
-              label="Night End"
-              type="time"
-              value={shiftForm.nightEnd}
-              onChange={handleShiftChange('nightEnd')}
-            />
+        <div className="space-y-6">
+          <div>
+            <h4 className="font-semibold text-slate-700 mb-3">Permanent Shifts</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Day Start"
+                type="time"
+                value={shiftForm.permanentDayStart}
+                onChange={handleShiftChange('permanentDayStart')}
+              />
+              <Input
+                label="Day End"
+                type="time"
+                value={shiftForm.permanentDayEnd}
+                onChange={handleShiftChange('permanentDayEnd')}
+              />
+              <Input
+                label="Night Start"
+                type="time"
+                value={shiftForm.permanentNightStart}
+                onChange={handleShiftChange('permanentNightStart')}
+              />
+              <Input
+                label="Night End"
+                type="time"
+                value={shiftForm.permanentNightEnd}
+                onChange={handleShiftChange('permanentNightEnd')}
+              />
+            </div>
+          </div>
+          <div>
+            <h4 className="font-semibold text-slate-700 mb-3">Manpower Shifts</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Day Start"
+                type="time"
+                value={shiftForm.manpowerDayStart}
+                onChange={handleShiftChange('manpowerDayStart')}
+              />
+              <Input
+                label="Day End"
+                type="time"
+                value={shiftForm.manpowerDayEnd}
+                onChange={handleShiftChange('manpowerDayEnd')}
+              />
+              <Input
+                label="Night Start"
+                type="time"
+                value={shiftForm.manpowerNightStart}
+                onChange={handleShiftChange('manpowerNightStart')}
+              />
+              <Input
+                label="Night End"
+                type="time"
+                value={shiftForm.manpowerNightEnd}
+                onChange={handleShiftChange('manpowerNightEnd')}
+              />
+            </div>
           </div>
 
           <div className="flex justify-end gap-3">
