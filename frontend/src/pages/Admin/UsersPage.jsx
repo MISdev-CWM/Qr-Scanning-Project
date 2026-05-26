@@ -75,11 +75,17 @@ export const UsersPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const payload = { ...formData };
+
+      if (selectedUser && !payload.password) {
+        delete payload.password;
+      }
+
       if (selectedUser) {
-        await userService.updateUser(selectedUser._id, formData);
+        await userService.updateUser(selectedUser._id, payload);
         showToast('User updated successfully', 'success');
       } else {
-        await userService.createUser(formData);
+        await userService.createUser(payload);
         showToast('User created successfully', 'success');
       }
       setIsModalOpen(false);
@@ -299,18 +305,6 @@ export const UsersPage = () => {
             disabled={!!selectedUser}
           />
 
-          {!selectedUser && (
-            <Input
-              label="Password"
-              name="password"
-              type="password"
-              value={formData.password}
-              onChange={handleInputChange}
-              required={!selectedUser}
-              placeholder={selectedUser ? 'Leave blank to keep current password' : ''}
-            />
-          )}
-
           <Input
             label="Full Name"
             name="name"
@@ -334,6 +328,16 @@ export const UsersPage = () => {
             type="email"
             value={formData.email}
             onChange={handleInputChange}
+          />
+
+          <Input
+            label={selectedUser ? 'New Password' : 'Password'}
+            name="password"
+            type="password"
+            value={formData.password}
+            onChange={handleInputChange}
+            required={!selectedUser}
+            placeholder={selectedUser ? 'Leave blank to keep current password' : ''}
           />
 
           <div className="flex gap-3 justify-end pt-4">

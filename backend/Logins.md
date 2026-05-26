@@ -4,7 +4,7 @@
 
 # Security logins
 - **username**: Security
-- **password**: sec123
+- **password**: Sec@123
 - **email**: sec@gmail.com
 
 # Process logins
