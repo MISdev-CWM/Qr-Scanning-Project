@@ -57,6 +57,11 @@ export const Sidebar = () => {
       label: 'Work Sessions',
     },
     {
+      to: '/ot-hours',
+      icon: Clock,
+      label: 'OT Hours',
+    },
+    {
       to: '/breaks',
       icon: Coffee,
       label: 'Breaks',

@@ -20,6 +20,7 @@ import { UsersPage } from './pages/Admin/UsersPage'
 import { AttendancePage } from './pages/Admin/AttendancePage'
 import { NonCheckoutEmployeesPage } from './pages/Admin/NonCheckoutEmployeesPage'
 import { WorkSessionsPage } from './pages/Admin/WorkSessionsPage'
+import { OTHoursPage } from './pages/Admin/OTHoursPage'
 import { IdleEmployeesPage } from './pages/Admin/IdleEmployeesPage'
 import { BreaksPage } from './pages/Admin/BreaksPage'
 import { ChangeoversPage } from './pages/Admin/ChangeoversPage'
@@ -129,6 +130,15 @@ export function App() {
               element={
                 <ProtectedRoute requiredRole="admin">
                   <WorkSessionsPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/ot-hours"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <OTHoursPage />
                 </ProtectedRoute>
               }
             />

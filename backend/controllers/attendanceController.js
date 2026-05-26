@@ -42,14 +42,16 @@ const getMinutesInTimeZone = (date, timeZone) => {
   }
 };
 
-const getShiftForDate = (date, shiftTimes) => {
+const getShiftForDate = (date, shiftTimes, employeeType = 'permanent') => {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
   if (!shiftTimes) return null;
 
-  const dayStart = parseTimeToMinutes(shiftTimes.dayStart);
-  const dayEnd = parseTimeToMinutes(shiftTimes.dayEnd);
-  const nightStart = parseTimeToMinutes(shiftTimes.nightStart);
-  const nightEnd = parseTimeToMinutes(shiftTimes.nightEnd);
+  const prefix = employeeType === 'manpower' ? 'manpower' : 'permanent';
+
+  const dayStart = parseTimeToMinutes(shiftTimes[`${prefix}DayStart`]);
+  const dayEnd = parseTimeToMinutes(shiftTimes[`${prefix}DayEnd`]);
+  const nightStart = parseTimeToMinutes(shiftTimes[`${prefix}NightStart`]);
+  const nightEnd = parseTimeToMinutes(shiftTimes[`${prefix}NightEnd`]);
 
   if ([dayStart, dayEnd, nightStart, nightEnd].some((v) => v === null)) {
     return null;
@@ -144,7 +146,17 @@ export const scanAtSecurity = async (req, res) => {
     const now = new Date();
     const workDate = now.toISOString().slice(0, 10); // YYYY-MM-DD
     const shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 }).lean();
-    const shift = getShiftForDate(now, shiftTimes);
+    
+    // Resolve employeeType
+    let employeeType = 'permanent';
+    if (employeeId) {
+      const empInfo = await Employee.findById(employeeId).select('employeeType').lean();
+      if (empInfo && empInfo.employeeType) {
+        employeeType = empInfo.employeeType;
+      }
+    }
+    
+    const shift = getShiftForDate(now, shiftTimes, employeeType);
 
     // Accept scanType from request, default to alternating if not provided
     let type = scanType;
@@ -230,7 +242,16 @@ export const updateAttendanceLogScanTime = async (req, res) => {
     }
 
     const shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 }).lean();
-    const shift = getShiftForDate(parsed, shiftTimes);
+    
+    let employeeType = 'permanent';
+    if (log.employeeId) {
+      const empInfo = await Employee.findById(log.employeeId).select('employeeType').lean();
+      if (empInfo && empInfo.employeeType) {
+        employeeType = empInfo.employeeType;
+      }
+    }
+
+    const shift = getShiftForDate(parsed, shiftTimes, employeeType);
 
     log.scanTime = parsed;
     log.workDate = newWorkDate;
@@ -403,6 +424,108 @@ export const getNonCheckoutEmployees = async (req, res) => {
       message: 'Error fetching non-checkout employees',
       error: err.message,
     });
+  }
+};
+
+// GET /api/attendance/ot-summary?date=YYYY-MM-DD
+export const getOTSummary = async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) {
+      return res.status(400).json({ message: 'date is required' });
+    }
+    
+    // Find all attendance logs for the date
+    const logs = await AttendanceLog.find({ workDate: date, scanLocation: 'SECURITY' }).populate('employeeId companyId');
+    
+    // Get the global shift times (including OT ranges)
+    const shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 }).lean();
+    
+    // Group by employee and shift
+    const summary = {};
+    logs.forEach(log => {
+      const empId = log.employeeId?._id?.toString() || (log.employeeId && log.employeeId.toString()) || 'unknown';
+      const shift = log.shift || 'UNKNOWN';
+      const key = `${empId}_${shift}`;
+      
+      if (!summary[key]) {
+        summary[key] = {
+          employee: log.employeeId,
+          company: log.companyId,
+          shift: shift,
+          logs: []
+        };
+      }
+      summary[key].logs.push(log);
+    });
+
+    const result = Object.values(summary).map(({ employee, company, shift, logs }) => {
+      const firstIn = logs.find(l => l.scanType === 'IN');
+      const lastOut = [...logs].reverse().find(l => l.scanType === 'OUT');
+      
+      const empType = employee?.employeeType || 'permanent';
+      const prefix = empType === 'manpower' ? 'manpower' : 'permanent';
+      
+      // Get OT boundaries based on employee type and shift
+      const otStartStr = shift === 'DAY' ? shiftTimes?.[`${prefix}DayOtStart`] : shiftTimes?.[`${prefix}NightOtStart`];
+      const otEndStr = shift === 'DAY' ? shiftTimes?.[`${prefix}DayOtEnd`] : shiftTimes?.[`${prefix}NightOtEnd`];
+      
+      let totalHours = 0;
+      let otHours = 0;
+      
+      if (firstIn && lastOut && firstIn.scanTime && lastOut.scanTime) {
+        const inTime = new Date(firstIn.scanTime);
+        const outTime = new Date(lastOut.scanTime);
+        
+        if (outTime > inTime) {
+          const diffMs = outTime - inTime;
+          totalHours = diffMs / (1000 * 60 * 60);
+          
+          if (otStartStr && otEndStr) {
+            const [sH, sM] = otStartStr.split(':').map(Number);
+            const [eH, eM] = otEndStr.split(':').map(Number);
+            
+            let otStart = new Date(outTime);
+            otStart.setHours(sH, sM, 0, 0);
+            
+            let otEnd = new Date(outTime);
+            otEnd.setHours(eH, eM, 0, 0);
+
+            if (otEnd < otStart) {
+               // OT crosses midnight (e.g. 23:00 to 02:00)
+               if (outTime.getHours() < 12) {
+                  otStart.setDate(otStart.getDate() - 1);
+               } else {
+                  otEnd.setDate(otEnd.getDate() + 1);
+               }
+            }
+
+            const overlapStart = Math.max(inTime.getTime(), otStart.getTime());
+            const overlapEnd = Math.min(outTime.getTime(), otEnd.getTime());
+            
+            if (overlapEnd > overlapStart) {
+              otHours = (overlapEnd - overlapStart) / (1000 * 60 * 60);
+            }
+          }
+        }
+      }
+
+      return {
+        id: `${employee?._id || 'unknown'}_${shift}`,
+        employee,
+        company,
+        shift,
+        firstIn,
+        lastOut,
+        totalHours: totalHours.toFixed(2),
+        otHours: otHours.toFixed(2),
+        otRange: otStartStr && otEndStr ? `${otStartStr} - ${otEndStr}` : 'Not Defined'
+      };
+    });
+    
+    res.status(200).json(result);
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching OT summary', error: err.message });
   }
 };
 //   } catch (err) {
