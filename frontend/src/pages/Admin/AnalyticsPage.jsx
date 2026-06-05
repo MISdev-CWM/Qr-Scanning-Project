@@ -25,10 +25,10 @@ const currentYyyyMm = () => {
   return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`
 }
 
-const formatHours = (value) => {
+const formatMinutes = (value) => {
   const n = Number(value)
-  if (Number.isNaN(n)) return '0.00'
-  return n.toFixed(2)
+  if (Number.isNaN(n)) return '0'
+  return String(Math.round(n * 60))
 }
 
 const formatTime = (value) => {
@@ -41,9 +41,9 @@ const formatTime = (value) => {
 const MonthlyBarChart = ({ rows }) => {
   const safeRows = Array.isArray(rows) ? rows : []
 
-  const maxHours = useMemo(() => {
-    const hours = safeRows.map((r) => Number(r.totalHours) || 0)
-    return Math.max(0, ...hours)
+  const maxMinutes = useMemo(() => {
+    const minutes = safeRows.map((r) => Number(r.totalHours) || 0)
+    return Math.max(0, ...minutes)
   }, [safeRows])
 
   if (safeRows.length === 0) {
@@ -66,8 +66,8 @@ const MonthlyBarChart = ({ rows }) => {
       <div className="border border-slate-200 rounded-md p-4 bg-slate-50 overflow-x-auto">
         <div className="min-w-130 flex flex-col gap-3">
           {safeRows.map((row, idx) => {
-            const hours = Number(row.totalHours) || 0
-            const widthPct = maxHours > 0 ? (hours / maxHours) * 100 : 0
+            const minutes = Number(row.totalHours) || 0
+            const widthPct = maxMinutes > 0 ? (minutes / maxMinutes) * 100 : 0
             const color = palette[idx % palette.length]
             const key = row.companyId || row.companyName || idx
 
@@ -87,14 +87,14 @@ const MonthlyBarChart = ({ rows }) => {
                     <div
                       className={`h-full ${color}`}
                       style={{ width: `${widthPct}%` }}
-                      title={`${row.companyName}: ${formatHours(hours)} hours`}
+                      title={`${row.companyName}: ${formatMinutes(minutes)} minutes`}
                     />
                   </div>
                 </div>
 
                 <div className="col-span-2 text-right">
                   <span className="text-xs text-slate-700 tabular-nums">
-                    {formatHours(hours)}
+                    {formatMinutes(minutes)}
                   </span>
                 </div>
               </div>
@@ -103,7 +103,7 @@ const MonthlyBarChart = ({ rows }) => {
         </div>
       </div>
       <div className="mt-2 text-xs text-slate-500">
-        Bars show monthly manpower work hours by company.
+        Bars show monthly manpower work time in minutes by company.
       </div>
     </div>
   )
@@ -162,8 +162,8 @@ export const AnalyticsPage = () => {
   const dailyColumns = [
     { header: 'Company', accessor: 'companyName' },
     {
-      header: 'Total Hours',
-      accessor: (row) => formatHours(row.totalHours),
+      header: 'Total Minutes',
+      accessor: (row) => formatMinutes(row.totalHours),
       className: 'text-right',
     },
     {
@@ -176,13 +176,13 @@ export const AnalyticsPage = () => {
   const dailyAvgColumns = [
     { header: 'Company', accessor: 'companyName' },
     {
-      header: 'Avg Hours / Session',
-      accessor: (row) => formatHours(row.averageHoursPerSession),
+      header: 'Avg Minutes / Session',
+      accessor: (row) => formatMinutes(row.averageHoursPerSession),
       className: 'text-right',
     },
     {
-      header: 'Total Hours',
-      accessor: (row) => formatHours(row.totalHours),
+      header: 'Total Minutes',
+      accessor: (row) => formatMinutes(row.totalHours),
       className: 'text-right',
     },
   ]
@@ -190,8 +190,8 @@ export const AnalyticsPage = () => {
   const monthlyColumns = [
     { header: 'Company', accessor: 'companyName' },
     {
-      header: 'Monthly Hours',
-      accessor: (row) => formatHours(row.totalHours),
+      header: 'Monthly Minutes',
+      accessor: (row) => formatMinutes(row.totalHours),
       className: 'text-right',
     },
     {
@@ -221,23 +221,23 @@ export const AnalyticsPage = () => {
       className: 'text-right',
     },
     {
-      header: 'Presence (hrs)',
-      accessor: (row) => formatHours(row.presenceHours),
+      header: 'Presence (min)',
+      accessor: (row) => formatMinutes(row.presenceHours),
       className: 'text-right',
     },
     {
-      header: 'Work (hrs)',
-      accessor: (row) => formatHours(row.workHours),
+      header: 'Work (min)',
+      accessor: (row) => formatMinutes(row.workHours),
       className: 'text-right',
     },
     {
-      header: 'Break (hrs)',
-      accessor: (row) => formatHours(row.breakHours),
+      header: 'Break (min)',
+      accessor: (row) => formatMinutes(row.breakHours),
       className: 'text-right',
     },
     {
-      header: 'Idle (hrs)',
-      accessor: (row) => formatHours(row.idleHours),
+      header: 'Idle (min)',
+      accessor: (row) => formatMinutes(row.idleHours),
       className: 'text-right',
     },
   ]
@@ -248,7 +248,7 @@ export const AnalyticsPage = () => {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Analytics</h1>
-            <p className="text-slate-600">Manpower work hours (company-wise)</p>
+            <p className="text-slate-600">Manpower work time in minutes (company-wise)</p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
@@ -284,7 +284,7 @@ export const AnalyticsPage = () => {
           </Card>
         ) : (
           <>
-            <Card title={`Daily manpower work hours (Company-wise) — ${date}`}>
+            <Card title={`Daily manpower work time in minutes (Company-wise) — ${date}`}>
               <Table
                 data={dailyRows}
                 columns={dailyColumns}
@@ -293,7 +293,7 @@ export const AnalyticsPage = () => {
               />
             </Card>
 
-            <Card title={`Daily average manpower work hours (Company-wise) — ${date}`}>
+            <Card title={`Daily average manpower work time in minutes (Company-wise) — ${date}`}>
               <Table
                 data={dailyAvgRows}
                 columns={dailyAvgColumns}
@@ -302,7 +302,7 @@ export const AnalyticsPage = () => {
               />
             </Card>
 
-            <Card title={`Daily employee idle time — ${date}`}>
+            <Card title={`Daily employee idle time in minutes — ${date}`}>
               <Table
                 data={idleRows}
                 columns={idleColumns}
@@ -311,7 +311,7 @@ export const AnalyticsPage = () => {
               />
             </Card>
 
-            <Card title={`Monthly manpower work hours (Company-wise) — ${month}`}>
+            <Card title={`Monthly manpower work time in minutes (Company-wise) — ${month}`}>
               <div className="mb-6">
                 <MonthlyBarChart rows={monthlyRows} />
               </div>

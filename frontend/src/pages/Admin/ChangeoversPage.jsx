@@ -49,6 +49,16 @@ export const ChangeoversPage = () => {
       return
     }
 
+    if (!minutes) {
+      showToast('Changeover minutes is required', 'error')
+      return
+    }
+
+    if (!note.trim()) {
+      showToast('Changeover note is required', 'error')
+      return
+    }
+
     try {
       await createChangeover({
         date,
@@ -120,6 +130,7 @@ export const ChangeoversPage = () => {
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
+                required={true}
               />
             </div>
 
@@ -128,6 +139,7 @@ export const ChangeoversPage = () => {
                 label="Minutes"
                 type="number"
                 min="0"
+                required={true}
                 value={minutes}
                 onChange={(e) => setMinutes(e.target.value)}
                 placeholder="e.g. 15"
@@ -136,8 +148,9 @@ export const ChangeoversPage = () => {
 
             <div className="md:col-span-2">
               <Input
-                label="Note (optional)"
+                label="Note"
                 value={note}
+                required={true}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="e.g. machine changeover"
               />
