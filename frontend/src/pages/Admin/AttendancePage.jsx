@@ -168,15 +168,30 @@ export const AttendancePage = () => {
   }
 
   const saveShiftTimes = async () => {
-    const values = Object.values(shiftForm)
-    if (values.some(v => !v)) {
-      showToast('Please fill all shift times', 'warning')
+    const base = {
+      manpowerDayStart: shiftTimes?.manpowerDayStart || '',
+      manpowerDayEnd: shiftTimes?.manpowerDayEnd || '',
+      manpowerNightStart: shiftTimes?.manpowerNightStart || '',
+      manpowerNightEnd: shiftTimes?.manpowerNightEnd || '',
+      permanentDayStart: shiftTimes?.permanentDayStart || '',
+      permanentDayEnd: shiftTimes?.permanentDayEnd || '',
+      permanentNightStart: shiftTimes?.permanentNightStart || '',
+      permanentNightEnd: shiftTimes?.permanentNightEnd || '',
+    }
+
+    const payload = Object.entries(shiftForm).reduce((acc, [key, value]) => {
+      if (value && value !== base[key]) acc[key] = value
+      return acc
+    }, {})
+
+    if (Object.keys(payload).length === 0) {
+      showToast('Nothing to update', 'warning')
       return
     }
 
     setIsShiftSaving(true)
     try {
-      const updated = await upsertShiftTimes(shiftForm)
+      const updated = await upsertShiftTimes(payload)
       setShiftTimes(updated)
       showToast('Shift times updated', 'success')
       setIsShiftOpen(false)

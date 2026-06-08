@@ -26,17 +26,23 @@ export const upsertShiftTimes = async (req, res) => {
       'manpowerDayOtStart', 'manpowerDayOtEnd', 'manpowerNightOtStart', 'manpowerNightOtEnd',
       'permanentDayOtStart', 'permanentDayOtEnd', 'permanentNightOtStart', 'permanentNightOtEnd'
     ];
-    
+
     const payload = {};
     for (const field of fields) {
+      if (req.body?.[field] === undefined) continue;
+
       const val = normalizeTime(req.body?.[field]);
       if (!val) {
-        return res.status(400).json({ message: `All shift and OT times are required (${field} is missing)` });
+        return res.status(400).json({ message: `${field} is required` });
       }
       if (!isValidTime(val)) {
-        return res.status(400).json({ message: `Shift and OT times must be in HH:mm format (${field} is invalid)` });
+        return res.status(400).json({ message: `${field} must be in HH:mm format` });
       }
       payload[field] = val;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return res.status(400).json({ message: 'No shift times provided' });
     }
 
     let shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 });
