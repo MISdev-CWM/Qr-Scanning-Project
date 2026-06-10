@@ -156,7 +156,7 @@ export const scanAtSecurity = async (req, res) => {
       }
     }
     
-    const shift = getShiftForDate(now, shiftTimes, employeeType);
+    let shift = getShiftForDate(now, shiftTimes, employeeType);
 
     // Accept scanType from request, default to alternating if not provided
     let type = scanType;
@@ -175,6 +175,24 @@ export const scanAtSecurity = async (req, res) => {
         // Alternate between IN and OUT
         const last = logs[logs.length - 1];
         type = last.scanType === 'IN' ? 'OUT' : 'IN';
+      }
+    }
+
+    // Fix: If checking OUT, inherit the shift from the most recent IN scan
+    if (type === 'OUT') {
+      const lastInLog = await AttendanceLog.findOne({
+        qrId: qr._id,
+        companyId,
+        scanLocation: context,
+        scanType: 'IN'
+      }).sort({ scanTime: -1 });
+
+      if (lastInLog && lastInLog.shift) {
+        // Ensure the last IN scan was within the last 24 hours so we don't pull an old shift
+        const hoursSinceLastIn = (now - new Date(lastInLog.scanTime)) / (1000 * 60 * 60);
+        if (hoursSinceLastIn < 24) {
+          shift = lastInLog.shift;
+        }
       }
     }
 
