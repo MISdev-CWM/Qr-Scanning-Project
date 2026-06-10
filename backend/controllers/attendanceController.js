@@ -42,6 +42,35 @@ const getMinutesInTimeZone = (date, timeZone) => {
   }
 };
 
+/**
+ * Builds an absolute Date object representing a specific HH:MM wall-clock time
+ * in the given IANA timezone, on the same calendar date (in that timezone)
+ * as referenceDate.
+ *
+ * e.g. buildTimeInTimeZone(outTime, 17, 0, 'Asia/Colombo')
+ *   → a UTC Date equivalent to 17:00:00 Sri Lanka time on the same local date as outTime.
+ */
+const buildTimeInTimeZone = (referenceDate, hh, mm, timeZone) => {
+  // Get the calendar date in the target timezone (YYYY-MM-DD)
+  const dateStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(referenceDate); // en-CA locale formats as YYYY-MM-DD
+
+  // Compute the timezone UTC offset for this moment using the toLocaleString trick
+  const utcProxy = new Date(referenceDate.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const tzProxy  = new Date(referenceDate.toLocaleString('en-US', { timeZone }));
+  const offsetMs = tzProxy.getTime() - utcProxy.getTime(); // positive for timezones ahead of UTC
+
+  // Build a UTC timestamp for the requested wall-clock time in that timezone:
+  // "dateStr HH:MM" treated as UTC, then subtract the offset to get true UTC.
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const utcMs = Date.UTC(year, month - 1, day, hh, mm, 0, 0);
+  return new Date(utcMs - offsetMs);
+};
+
 const getShiftForDate = (date, shiftTimes, employeeType = 'permanent') => {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
   if (!shiftTimes) return null;
@@ -459,70 +488,77 @@ export const getOTSummary = async (req, res) => {
     // Get the global shift times (including OT ranges)
     const shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 }).lean();
     
-    // Group by employee and shift
+    // Group by employee only (not by shift), so check-in and check-out always
+    // appear on the same row regardless of which shift was saved on each scan.
     const summary = {};
     logs.forEach(log => {
       const empId = log.employeeId?._id?.toString() || (log.employeeId && log.employeeId.toString()) || 'unknown';
-      const shift = log.shift || 'UNKNOWN';
-      const key = `${empId}_${shift}`;
-      
+      // Key by employee only – one row per employee per day
+      const key = empId;
+
       if (!summary[key]) {
         summary[key] = {
           employee: log.employeeId,
           company: log.companyId,
-          shift: shift,
           logs: []
         };
       }
       summary[key].logs.push(log);
     });
 
-    const result = Object.values(summary).map(({ employee, company, shift, logs }) => {
+    const result = Object.values(summary).map(({ employee, company, logs }) => {
+      // Sort ascending so firstIn/lastOut are reliable
+      logs.sort((a, b) => new Date(a.scanTime) - new Date(b.scanTime));
+
       const firstIn = logs.find(l => l.scanType === 'IN');
       const lastOut = [...logs].reverse().find(l => l.scanType === 'OUT');
-      
+
+      // Use the shift recorded on the first IN scan as the authoritative shift.
+      // This ensures that even if old OUT scans had a wrong shift, the row
+      // still shows the correct shift and places check-in + check-out together.
+      const shift = firstIn?.shift || lastOut?.shift || 'UNKNOWN';
+
       const empType = employee?.employeeType || 'permanent';
       const prefix = empType === 'manpower' ? 'manpower' : 'permanent';
-      
-      // Get OT boundaries based on employee type and shift
-      const otStartStr = shift === 'DAY' ? shiftTimes?.[`${prefix}DayOtStart`] : shiftTimes?.[`${prefix}NightOtStart`];
-      const otEndStr = shift === 'DAY' ? shiftTimes?.[`${prefix}DayOtEnd`] : shiftTimes?.[`${prefix}NightOtEnd`];
-      
+
+      // Shift end time is the boundary after which OT begins
+      // e.g. permanentDayEnd = "17:00", permanentNightEnd = "05:00"
+      const shiftEndStr = shift === 'DAY'
+        ? shiftTimes?.[`${prefix}DayEnd`]
+        : shiftTimes?.[`${prefix}NightEnd`];
+
       let totalHours = 0;
       let otHours = 0;
-      
+
       if (firstIn && lastOut && firstIn.scanTime && lastOut.scanTime) {
         const inTime = new Date(firstIn.scanTime);
         const outTime = new Date(lastOut.scanTime);
-        
-        if (outTime > inTime) {
-          const diffMs = outTime - inTime;
-          totalHours = diffMs / (1000 * 60 * 60);
-          
-          if (otStartStr && otEndStr) {
-            const [sH, sM] = otStartStr.split(':').map(Number);
-            const [eH, eM] = otEndStr.split(':').map(Number);
-            
-            let otStart = new Date(outTime);
-            otStart.setHours(sH, sM, 0, 0);
-            
-            let otEnd = new Date(outTime);
-            otEnd.setHours(eH, eM, 0, 0);
 
-            if (otEnd < otStart) {
-               // OT crosses midnight (e.g. 23:00 to 02:00)
-               if (outTime.getHours() < 12) {
-                  otStart.setDate(otStart.getDate() - 1);
-               } else {
-                  otEnd.setDate(otEnd.getDate() + 1);
-               }
+        if (outTime > inTime) {
+          totalHours = (outTime - inTime) / (1000 * 60 * 60);
+
+          // OT = checkout time - shift end time (only if checkout is after shift end).
+          // IMPORTANT: shiftEndStr (e.g. "17:00") is a wall-clock time in SHIFT_TIMEZONE
+          // (Asia/Colombo). scanTime values in the DB are UTC. We must convert the
+          // shift-end string to an absolute UTC Date before comparing, otherwise
+          // setHours() would apply the time in server-local time (UTC) and produce
+          // a shift-end that is 5h30m too late, making OT always 0.
+          if (shiftEndStr) {
+            const [endH, endM] = shiftEndStr.split(':').map(Number);
+
+            // Build shift-end as a proper UTC Date in the configured timezone
+            let shiftEnd = buildTimeInTimeZone(outTime, endH, endM, SHIFT_TIMEZONE);
+
+            // For night shifts that end in the early morning of the next day
+            // (e.g. nightEnd = 05:00), the built shiftEnd might land before inTime.
+            // In that case push it forward one day.
+            if (shift === 'NIGHT' && shiftEnd <= inTime) {
+              shiftEnd = new Date(shiftEnd.getTime() + 24 * 60 * 60 * 1000);
             }
 
-            const overlapStart = Math.max(inTime.getTime(), otStart.getTime());
-            const overlapEnd = Math.min(outTime.getTime(), otEnd.getTime());
-            
-            if (overlapEnd > overlapStart) {
-              otHours = (overlapEnd - overlapStart) / (1000 * 60 * 60);
+            // OT = how many hours the employee stayed beyond shift end
+            if (outTime > shiftEnd) {
+              otHours = (outTime - shiftEnd) / (1000 * 60 * 60);
             }
           }
         }
@@ -537,7 +573,7 @@ export const getOTSummary = async (req, res) => {
         lastOut,
         totalHours: totalHours.toFixed(2),
         otHours: otHours.toFixed(2),
-        otRange: otStartStr && otEndStr ? `${otStartStr} - ${otEndStr}` : 'Not Defined'
+        shiftEnd: shiftEndStr || 'Not Defined',
       };
     });
     
