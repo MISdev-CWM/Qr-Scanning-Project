@@ -27,6 +27,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git remote add MISdev-CWM https://x-access-token:${MISDEV_CWM_SYNC_TOKEN}@github.com/MISdev-CWM/Qr-Scanning-Project
+          git remote add MISdev-CWM https://x-access-token:${MISDEV_CWM_SYNC_TOKEN}@github.com/MISdev-CWM/Qr-Scanning-Project.git
 
           git push MISdev-CWM HEAD:main --force
