@@ -137,6 +137,7 @@ export const BreaksPage = () => {
       </Modal>
 
       {/* Custom Delete Confirmation Modal */}
+            {/* Custom Delete Confirmation Modal */}
       <Modal
         isOpen={!!deleteId}
         onClose={cancelDelete}
