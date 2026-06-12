@@ -1,0 +1,32 @@
+name: Sync MrChaKii repo to MISdev-CWM fork
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync-to-developerMIS:
+    if: github.repository == 'MrChaKii/Qr-Scanning-Project.git'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout MrChaKii repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push latest main branch to MISdev-CWM fork
+        env:
+          MISDEV_CWM_SYNC_TOKEN: ${{ secrets.DEVELOPMENT_SYNC_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git remote add MISdev-CWM https://x-access-token:${DEVELOPMENT_SYNC_TOKEN}@github.com/MISdev-CWM/Qr-Scanning-Project.git
+
+          git push MISdev-CWM HEAD:main --force
