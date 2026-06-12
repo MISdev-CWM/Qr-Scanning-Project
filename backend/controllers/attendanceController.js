@@ -324,6 +324,95 @@ export const updateAttendanceLogScanTime = async (req, res) => {
   }
 };
 
+// POST /api/attendance/logs/manual
+// Admin-only: create a manual attendance log (e.g. if employee wasn't checked out)
+export const createManualAttendanceLog = async (req, res) => {
+  try {
+    const { employeeId, companyId, scanType, scanTime, workDate } = req.body;
+
+    if (!employeeId || !/^[a-fA-F0-9]{24}$/.test(employeeId)) {
+      return res.status(400).json({ message: 'Invalid employeeId' });
+    }
+    if (!companyId || !/^[a-fA-F0-9]{24}$/.test(companyId)) {
+      return res.status(400).json({ message: 'Invalid companyId' });
+    }
+    if (!scanType || !['IN', 'OUT'].includes(scanType)) {
+      return res.status(400).json({ message: 'scanType must be IN or OUT' });
+    }
+    if (!scanTime) {
+      return res.status(400).json({ message: 'scanTime is required' });
+    }
+    if (!workDate) {
+      return res.status(400).json({ message: 'workDate is required' });
+    }
+
+    const parsedTime = new Date(scanTime);
+    if (Number.isNaN(parsedTime.getTime())) {
+      return res.status(400).json({ message: 'scanTime must be a valid date/time' });
+    }
+
+    // Resolve employee details
+    const employee = await Employee.findById(employeeId).lean();
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    // Find QRCode linked to this employee or fallback to company's shared type
+    let qr = await QRCode.findOne({ employeeId });
+    if (!qr) {
+      qr = await QRCode.findOne({ companyId, qrType: employee.employeeType });
+    }
+    if (!qr) {
+      return res.status(404).json({ message: 'QR code not found for this employee/company' });
+    }
+
+    // Determine shift
+    const shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 }).lean();
+    let shift = getShiftForDate(parsedTime, shiftTimes, employee.employeeType || 'permanent');
+
+    // If type is OUT, inherit shift from the last IN scan if available
+    if (scanType === 'OUT') {
+      const lastInLog = await AttendanceLog.findOne({
+        employeeId,
+        companyId,
+        scanLocation: 'SECURITY',
+        scanType: 'IN',
+        workDate
+      }).sort({ scanTime: -1 });
+
+      if (lastInLog && lastInLog.shift) {
+        shift = lastInLog.shift;
+      }
+    }
+
+    const attendance = new AttendanceLog({
+      qrId: qr._id,
+      companyId,
+      employeeId,
+      scanType,
+      scanLocation: 'SECURITY',
+      scanTime: parsedTime,
+      workDate,
+      shift,
+      editedAt: new Date(),
+      editedBy: req.userId || null
+    });
+
+    await attendance.save();
+
+    return res.status(201).json({
+      message: 'Attendance log created successfully',
+      attendance
+    });
+  } catch (err) {
+    return res.status(500).json({
+      message: 'Error creating manual attendance log',
+      error: err.message
+    });
+  }
+};
+
+
 // GET /api/attendance/summary?qrId=...&date=YYYY-MM-DD
 export const getAttendanceSummary = async (req, res) => {
   try {

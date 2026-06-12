@@ -175,3 +175,15 @@ export const updateAttendanceLogScanTime = async (attendanceLogId, scanTime) => 
 
   return response.data?.attendance || response.data
 }
+
+// Admin-only: create a manual attendance log (e.g. if employee wasn't checked out)
+export const createManualAttendanceLog = async ({ employeeId, companyId, scanType, scanTime, workDate }) => {
+  const response = await api.post('/api/attendance/logs/manual', {
+    employeeId,
+    companyId,
+    scanType,
+    scanTime,
+    workDate,
+  })
+  return response.data?.attendance || response.data
+}

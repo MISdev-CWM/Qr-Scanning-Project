@@ -7,7 +7,7 @@ import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { useToast } from '../../hooks/useToast'
-import { getDailySummary, getNonCheckoutEmployees, updateAttendanceLogScanTime } from '../../services/attendance.service'
+import { getDailySummary, getNonCheckoutEmployees, updateAttendanceLogScanTime, createManualAttendanceLog } from '../../services/attendance.service'
 import { getShiftTimes, upsertShiftTimes } from '../../services/shiftTime.service'
 
 const toTimeValue = (scanTime) => {
@@ -89,6 +89,8 @@ export const AttendancePage = () => {
             item.lastOut?._id ||
             `${item.employee?.name || 'employee'}-${date}`,
           employeeId: item.employee?.employeeId || 'N/A',
+          employeeObjectId: item.employee?._id,
+          companyObjectId: item.company?._id || item.firstIn?.companyId || item.lastOut?.companyId,
           name: item.employee?.name || 'Unknown',
           checkIn: item.firstIn?.scanTime,
           checkOut: item.lastOut?.scanTime,
@@ -241,6 +243,19 @@ export const AttendancePage = () => {
         if (iso) {
           updates.push(updateAttendanceLogScanTime(editRow.checkInLogId, iso))
         }
+      } else if (editCheckIn) {
+        const iso = toIsoFromDateAndTime(baseDate, editCheckIn)
+        if (iso) {
+          updates.push(
+            createManualAttendanceLog({
+              employeeId: editRow.employeeObjectId,
+              companyId: editRow.companyObjectId,
+              scanType: 'IN',
+              scanTime: iso,
+              workDate: baseDate,
+            })
+          )
+        }
       }
 
       if (editRow.checkOutLogId) {
@@ -248,6 +263,19 @@ export const AttendancePage = () => {
         const iso = editCheckOut && editCheckOut !== original ? toIsoFromDateAndTime(baseDate, editCheckOut) : null
         if (iso) {
           updates.push(updateAttendanceLogScanTime(editRow.checkOutLogId, iso))
+        }
+      } else if (editCheckOut) {
+        const iso = toIsoFromDateAndTime(baseDate, editCheckOut)
+        if (iso) {
+          updates.push(
+            createManualAttendanceLog({
+              employeeId: editRow.employeeObjectId,
+              companyId: editRow.companyObjectId,
+              scanType: 'OUT',
+              scanTime: iso,
+              workDate: baseDate,
+            })
+          )
         }
       }
 
@@ -506,7 +534,6 @@ export const AttendancePage = () => {
               type="time"
               value={editCheckIn}
               onChange={(e) => setEditCheckIn(e.target.value)}
-              disabled={!editRow?.checkInLogId}
             />
 
             <Input
@@ -514,7 +541,6 @@ export const AttendancePage = () => {
               type="time"
               value={editCheckOut}
               onChange={(e) => setEditCheckOut(e.target.value)}
-              disabled={!editRow?.checkOutLogId}
             />
           </div>
 

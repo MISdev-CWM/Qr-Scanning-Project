@@ -1,5 +1,5 @@
 import express from 'express';
-import { scanAtSecurity, getAttendanceSummary, getDailySummary, getRecentAttendanceLogs, updateAttendanceLogScanTime, getNonCheckoutEmployees, getOTSummary } from '../controllers/attendanceController.js';
+import { scanAtSecurity, getAttendanceSummary, getDailySummary, getRecentAttendanceLogs, updateAttendanceLogScanTime, getNonCheckoutEmployees, getOTSummary, createManualAttendanceLog } from '../controllers/attendanceController.js';
 import { auth, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -24,5 +24,8 @@ router.get('/non-checkout', auth, authorize('admin'), getNonCheckoutEmployees);
 
 // Admin-only: update check-in/check-out time for an existing attendance log
 router.put('/logs/:id/scan-time', auth, authorize('admin'), updateAttendanceLogScanTime);
+
+// Admin-only: create a manual check-in/check-out log if it doesn't exist
+router.post('/logs/manual', auth, authorize('admin'), createManualAttendanceLog);
 
 export default router;
