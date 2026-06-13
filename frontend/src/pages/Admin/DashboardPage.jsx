@@ -164,7 +164,7 @@ export const DashboardPage = () => {
             Dashboard
           </h1>
           <p className="text-slate-600">
-            Overview of your workforce today
+            Overview of your workforce today- hii
           </p>
         </div>
 
