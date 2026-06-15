@@ -376,7 +376,7 @@ export const AttendancePage = () => {
   return (
     <DashboardLayout>
       <h1 className="text-2xl font-bold text-slate-900 mb-6">
-        Bla bla
+        Attendance Management
       </h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
