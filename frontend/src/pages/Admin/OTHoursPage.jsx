@@ -5,9 +5,38 @@ import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
+import { ReportModal } from '../../components/features/ReportModal'
 import { useToast } from '../../hooks/useToast'
 import { getOTSummary } from '../../services/attendance.service'
 import { getShiftTimes, upsertShiftTimes } from '../../services/shiftTime.service'
+
+const toLocalDateString = (dateValue) => {
+  const yyyy = dateValue.getFullYear()
+  const mm = String(dateValue.getMonth() + 1).padStart(2, '0')
+  const dd = String(dateValue.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+const getDateRange = (startDate, endDate) => {
+  const [startYear, startMonth, startDay] = startDate.split('-').map(Number)
+  const [endYear, endMonth, endDay] = endDate.split('-').map(Number)
+  const start = new Date(startYear, startMonth - 1, startDay)
+  const end = new Date(endYear, endMonth - 1, endDay)
+  const dates = []
+
+  for (let current = start; current <= end; current.setDate(current.getDate() + 1)) {
+    dates.push(toLocalDateString(current))
+  }
+
+  return dates
+}
+
+const formatReportDateTime = (value) => {
+  if (!value) return '-'
+  const dateValue = new Date(value)
+  if (Number.isNaN(dateValue.getTime())) return '-'
+  return dateValue.toLocaleString()
+}
 
 export const OTHoursPage = () => {
   const { showToast } = useToast()
@@ -21,6 +50,8 @@ export const OTHoursPage = () => {
   const [isShiftLoading, setIsShiftLoading] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isReportOpen, setIsReportOpen] = useState(false)
+  const [isReportGenerating, setIsReportGenerating] = useState(false)
   
   const [otForm, setOtForm] = useState({
     manpowerDayOtStart: '17:00',
@@ -98,6 +129,15 @@ export const OTHoursPage = () => {
     setIsEditModalOpen(true)
   }
 
+  const openReportModal = () => {
+    setIsReportOpen(true)
+  }
+
+  const closeReportModal = () => {
+    if (isReportGenerating) return
+    setIsReportOpen(false)
+  }
+
   const handleOtChange = (field) => (e) => {
     setOtForm((prev) => ({
       ...prev,
@@ -130,6 +170,76 @@ export const OTHoursPage = () => {
       showToast('Failed to save OT threshold', 'error')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const generateReport = async (startDate, endDate) => {
+    if (!startDate || !endDate) {
+      showToast('Please select a date range', 'warning')
+      return
+    }
+
+    if (startDate > endDate) {
+      showToast('Start date cannot be after end date', 'warning')
+      return
+    }
+
+    setIsReportGenerating(true)
+    try {
+      const reportDates = getDateRange(startDate, endDate)
+      const responses = await Promise.all(reportDates.map((reportDate) => getOTSummary(reportDate)))
+      const rows = responses.flatMap((data, index) => {
+        if (!Array.isArray(data)) return []
+
+        return data.map((item) => ({
+          ...item,
+          reportDate: item.firstIn?.workDate || item.lastOut?.workDate || reportDates[index],
+        }))
+      })
+
+      if (rows.length === 0) {
+        showToast('No OT records found for this date range', 'warning')
+        return
+      }
+
+      showToast('OT hours report downloaded', 'success')
+      return {
+        headers: [
+          'Date',
+          'Employee ID',
+          'Employee Name',
+          'Company',
+          'Employee Type',
+          'Shift',
+          'Check In',
+          'Check Out',
+          'Total Hours',
+          'Shift End',
+          'OT Hours',
+        ],
+        rows: rows.map((item) => [
+          item.reportDate || '-',
+          item.employee?.employeeId || 'N/A',
+          item.employee?.name || 'Unknown',
+          item.company?.companyName || 'N/A',
+          item.employee?.employeeType || 'permanent',
+          item.shift || '-',
+          formatReportDateTime(item.firstIn?.scanTime),
+          formatReportDateTime(item.lastOut?.scanTime),
+          item.totalHours ?? '0.00',
+          item.shiftEnd || 'Not Defined',
+          item.otHours ?? '0.00',
+        ]),
+        fileName: `ot-hours-report-${startDate}-to-${endDate}.xlsx`,
+        sheetName: 'OT Hours',
+        columnWidths: [14, 18, 24, 24, 18, 12, 24, 24, 14, 14, 12],
+      }
+    } catch (error) {
+      console.error('Failed to generate OT hours report', error)
+      const msg = error?.response?.data?.message || error?.message || 'Failed to generate OT hours report'
+      showToast(msg, 'error')
+    } finally {
+      setIsReportGenerating(false)
     }
   }
 
@@ -210,6 +320,16 @@ export const OTHoursPage = () => {
         
         <div className="flex flex-col items-end gap-3">
           <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              type="button"
+              onClick={openReportModal}
+              disabled={isEditModalOpen}
+              className="!border-green-200 !bg-green-100 !text-green-800 hover:!bg-green-200 focus:!ring-green-500"
+            >
+              Generate Report
+            </Button>
+
             <Button variant="outline" onClick={openEditModal}>
               Edit OT Ranges
             </Button>
@@ -232,6 +352,14 @@ export const OTHoursPage = () => {
           emptyMessage="No attendance records for this date to calculate OT"
         />
       </div>
+
+      <ReportModal
+        isOpen={isReportOpen}
+        onClose={closeReportModal}
+        onGenerate={generateReport}
+        isGenerating={isReportGenerating}
+        initialDate={date}
+      />
 
       <Modal
         isOpen={isEditModalOpen}

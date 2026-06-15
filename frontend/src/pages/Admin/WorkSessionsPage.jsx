@@ -7,6 +7,7 @@ import { Input } from '../../components/ui/Input'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { Select } from '../../components/ui/Select'
+import { ReportModal } from '../../components/features/ReportModal'
 import { useToast } from '../../hooks/useToast'
 import { getWorkSessions, updateWorkSessionTimes } from '../../services/workSession.service'
 import { getProcesses } from '../../services/process.service'
@@ -31,6 +32,36 @@ const toIsoOrNull = (dateTimeLocal) => {
   return d.toISOString()
 }
 
+const toLocalDateString = (dateValue) => {
+  const yyyy = dateValue.getFullYear()
+  const mm = String(dateValue.getMonth() + 1).padStart(2, '0')
+  const dd = String(dateValue.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+const todayYyyyMmDd = () => toLocalDateString(new Date())
+
+const getDateRange = (startDate, endDate) => {
+  const [startYear, startMonth, startDay] = startDate.split('-').map(Number)
+  const [endYear, endMonth, endDay] = endDate.split('-').map(Number)
+  const start = new Date(startYear, startMonth - 1, startDay)
+  const end = new Date(endYear, endMonth - 1, endDay)
+  const dates = []
+
+  for (let current = start; current <= end; current.setDate(current.getDate() + 1)) {
+    dates.push(toLocalDateString(current))
+  }
+
+  return dates
+}
+
+const formatReportDateTime = (value) => {
+  if (!value) return '-'
+  const dateValue = new Date(value)
+  if (Number.isNaN(dateValue.getTime())) return '-'
+  return dateValue.toLocaleString()
+}
+
 export const WorkSessionsPage = () => {
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -42,6 +73,8 @@ export const WorkSessionsPage = () => {
 
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isReportOpen, setIsReportOpen] = useState(false)
+  const [isReportGenerating, setIsReportGenerating] = useState(false)
   const [editSession, setEditSession] = useState(null)
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
@@ -87,6 +120,15 @@ export const WorkSessionsPage = () => {
     const processPart = selectedProcess ? ` (${selectedProcess})` : ''
     return `No work sessions found${datePart}${processPart}`
   })()
+
+  const openReportModal = () => {
+    setIsReportOpen(true)
+  }
+
+  const closeReportModal = () => {
+    if (isReportGenerating) return
+    setIsReportOpen(false)
+  }
 
   const openEdit = (session) => {
     setEditSession(session)
@@ -135,6 +177,72 @@ export const WorkSessionsPage = () => {
       showToast(msg, 'error')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const generateReport = async (startDate, endDate) => {
+    if (!startDate || !endDate) {
+      showToast('Please select a date range', 'warning')
+      return
+    }
+
+    if (startDate > endDate) {
+      showToast('Start date cannot be after end date', 'warning')
+      return
+    }
+
+    setIsReportGenerating(true)
+    try {
+      const reportDates = getDateRange(startDate, endDate)
+      const responses = await Promise.all(reportDates.map((reportDate) => getWorkSessions({ date: reportDate })))
+      const normalizedReportProcess = String(selectedProcess || '').trim().toLowerCase()
+      const rows = responses
+        .flat()
+        .filter((session) =>
+          normalizedReportProcess
+            ? String(session?.processName || '').trim().toLowerCase() === normalizedReportProcess
+            : true
+        )
+
+      if (rows.length === 0) {
+        showToast('No work sessions found for this date range', 'warning')
+        return
+      }
+
+      showToast('Work sessions report downloaded', 'success')
+      return {
+        headers: [
+          'Date',
+          'Employee ID',
+          'Employee Name',
+          'Company',
+          'Process',
+          'Start Time',
+          'End Time',
+          'Status',
+          'Duration (min)',
+        ],
+        rows: rows.map((session) => [
+          session.startTime ? toLocalDateString(new Date(session.startTime)) : '-',
+          session.employeeId?.employeeId || session.employeeId?._id || 'Unknown',
+          session.employeeId?.name || 'Unknown',
+          session.companyId?.companyName || '-',
+          session.processName || '-',
+          formatReportDateTime(session.startTime),
+          formatReportDateTime(session.endTime),
+          session.endTime ? 'COMPLETED' : 'ACTIVE',
+          typeof session.durationMinutes === 'number' ? session.durationMinutes : '-',
+        ]),
+        fileName: `work-sessions-report-${startDate}-to-${endDate}.xlsx`,
+        sheetName: 'Work Sessions',
+        columnWidths: [14, 18, 24, 24, 24, 24, 24, 14, 16],
+      }
+    } catch (error) {
+      console.error('Failed to generate work sessions report', error)
+      const msg = error?.response?.data?.message || error?.message || 'Failed to generate work sessions report'
+      showToast(msg, 'error')
+    } finally {
+      setIsReportGenerating(false)
     }
   }
 
@@ -196,17 +304,29 @@ export const WorkSessionsPage = () => {
           Work Sessions
         </h1>
 
-        <Button
-          variant="secondary"
-          type="button"
-          onClick={() =>
-            navigate(
-              selectedDate ? `/work-sessions/idle?date=${selectedDate}` : '/work-sessions/idle'
-            )
-          }
-        >
-          View Idle Employees
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            type="button"
+            onClick={openReportModal}
+            disabled={isEditOpen}
+            className="!border-green-200 !bg-green-100 !text-green-800 hover:!bg-green-200 focus:!ring-green-500"
+          >
+            Generate Report
+          </Button>
+
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={() =>
+              navigate(
+                selectedDate ? `/work-sessions/idle?date=${selectedDate}` : '/work-sessions/idle'
+              )
+            }
+          >
+            View Idle Employees
+          </Button>
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
@@ -254,6 +374,14 @@ export const WorkSessionsPage = () => {
         keyExtractor={(item) => item._id}
         isLoading={isLoading}
         emptyMessage={emptyMessage}
+      />
+
+      <ReportModal
+        isOpen={isReportOpen}
+        onClose={closeReportModal}
+        onGenerate={generateReport}
+        isGenerating={isReportGenerating}
+        initialDate={selectedDate || todayYyyyMmDd()}
       />
 
       <Modal

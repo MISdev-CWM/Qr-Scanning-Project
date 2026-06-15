@@ -6,6 +6,7 @@ import { Input } from '../../components/ui/Input'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
+import { ReportModal } from '../../components/features/ReportModal'
 import { useToast } from '../../hooks/useToast'
 import { getDailySummary, getNonCheckoutEmployees, updateAttendanceLogScanTime, createManualAttendanceLog } from '../../services/attendance.service'
 import { getShiftTimes, upsertShiftTimes } from '../../services/shiftTime.service'
@@ -35,6 +36,34 @@ const formatShiftWindow = (start, end, fallback = 'Not set') => {
   return `${start} - ${end}`
 }
 
+const toLocalDateString = (dateValue) => {
+  const yyyy = dateValue.getFullYear()
+  const mm = String(dateValue.getMonth() + 1).padStart(2, '0')
+  const dd = String(dateValue.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+const getDateRange = (startDate, endDate) => {
+  const [startYear, startMonth, startDay] = startDate.split('-').map(Number)
+  const [endYear, endMonth, endDay] = endDate.split('-').map(Number)
+  const start = new Date(startYear, startMonth - 1, startDay)
+  const end = new Date(endYear, endMonth - 1, endDay)
+  const dates = []
+
+  for (let current = start; current <= end; current.setDate(current.getDate() + 1)) {
+    dates.push(toLocalDateString(current))
+  }
+
+  return dates
+}
+
+const formatReportDateTime = (value) => {
+  if (!value) return '-'
+  const dateValue = new Date(value)
+  if (Number.isNaN(dateValue.getTime())) return '-'
+  return dateValue.toLocaleString()
+}
+
 export const AttendancePage = () => {
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -54,6 +83,8 @@ export const AttendancePage = () => {
   const [isShiftLoading, setIsShiftLoading] = useState(false)
   const [isShiftOpen, setIsShiftOpen] = useState(false)
   const [isShiftSaving, setIsShiftSaving] = useState(false)
+  const [isReportOpen, setIsReportOpen] = useState(false)
+  const [isReportGenerating, setIsReportGenerating] = useState(false)
   const [shiftForm, setShiftForm] = useState({
     manpowerDayStart: '',
     manpowerDayEnd: '',
@@ -161,6 +192,15 @@ export const AttendancePage = () => {
     setIsShiftOpen(false)
   }
 
+  const openReportModal = () => {
+    setIsReportOpen(true)
+  }
+
+  const closeReportModal = () => {
+    if (isReportGenerating) return
+    setIsReportOpen(false)
+  }
+
   const handleShiftChange = (field) => (e) => {
     const value = e.target.value
     setShiftForm((prev) => ({
@@ -203,6 +243,79 @@ export const AttendancePage = () => {
       showToast(msg, 'error')
     } finally {
       setIsShiftSaving(false)
+    }
+  }
+
+  const generateReport = async (startDate, endDate) => {
+    if (!startDate || !endDate) {
+      showToast('Please select a date range', 'warning')
+      return
+    }
+
+    if (startDate > endDate) {
+      showToast('Start date cannot be after end date', 'warning')
+      return
+    }
+
+    setIsReportGenerating(true)
+    try {
+      const reportDates = getDateRange(startDate, endDate)
+      const responses = await Promise.all(reportDates.map((reportDate) => getDailySummary(reportDate)))
+      const rows = responses.flatMap((data, index) => {
+        if (!Array.isArray(data)) return []
+
+        return data.map((item) => {
+          const workDateFromLog = item.firstIn?.workDate || item.lastOut?.workDate || reportDates[index]
+          return {
+            employeeId: item.employee?.employeeId || 'N/A',
+            name: item.employee?.name || 'Unknown',
+            checkIn: item.firstIn?.scanTime,
+            checkOut: item.lastOut?.scanTime,
+            shift: item.firstIn?.shift || item.lastOut?.shift || null,
+            workDate: workDateFromLog,
+            status: item.firstIn && item.lastOut ? 'Present' : item.firstIn ? 'Partial' : 'Absent',
+            company: item.company?.companyName || 'N/A',
+          }
+        })
+      })
+
+      if (rows.length === 0) {
+        showToast('No attendance records found for this date range', 'warning')
+        return
+      }
+
+      showToast('Attendance report downloaded', 'success')
+      return {
+        headers: [
+          'Date',
+          'Employee ID',
+          'Employee Name',
+          'Company',
+          'Check In',
+          'Check Out',
+          'Shift',
+          'Status',
+        ],
+        rows: rows.map((row) => [
+          row.workDate,
+          row.employeeId,
+          row.name,
+          row.company,
+          formatReportDateTime(row.checkIn),
+          formatReportDateTime(row.checkOut),
+          row.shift || '-',
+          row.status,
+        ]),
+        fileName: `attendance-report-${startDate}-to-${endDate}.xlsx`,
+        sheetName: 'Attendance Report',
+        columnWidths: [14, 18, 24, 24, 24, 24, 12, 14],
+      }
+    } catch (error) {
+      console.error('Failed to generate attendance report', error)
+      const msg = error?.response?.data?.message || error?.message || 'Failed to generate attendance report'
+      showToast(msg, 'error')
+    } finally {
+      setIsReportGenerating(false)
     }
   }
 
@@ -393,6 +506,16 @@ export const AttendancePage = () => {
 
               <div className="flex items-end gap-3">
                 <Button
+                  variant="outline"
+                  type="button"
+                  onClick={openReportModal}
+                  disabled={isEditOpen}
+                  className="!border-green-200 !bg-green-100 !text-green-800 hover:!bg-green-200 focus:!ring-green-500"
+                >
+                  Generate Report
+                </Button>
+
+                <Button
                   variant="secondary"
                   type="button"
                   onClick={() => navigate(`/attendance/non-checkout?date=${date}`)}
@@ -521,6 +644,14 @@ export const AttendancePage = () => {
           </div>
         </div>
       </Modal>
+
+      <ReportModal
+        isOpen={isReportOpen}
+        onClose={closeReportModal}
+        onGenerate={generateReport}
+        isGenerating={isReportGenerating}
+        initialDate={date}
+      />
 
       <Modal
         isOpen={isEditOpen}
