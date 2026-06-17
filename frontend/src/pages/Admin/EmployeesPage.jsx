@@ -16,6 +16,7 @@ export const EmployeesPage = () => {
   const [filteredEmployees, setFilteredEmployees] = useState([])
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
+  const [companyFilter, setCompanyFilter] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -43,10 +44,23 @@ export const EmployeesPage = () => {
   }, [])
 
   useEffect(() => {
-    let result = employees;
+    let result = [...employees];
+    
+    // Sort by company name
+    result.sort((a, b) => {
+      const companyA = a.companyId?.companyName || a.companyId?.name || '';
+      const companyB = b.companyId?.companyName || b.companyId?.name || '';
+      return companyA.localeCompare(companyB);
+    });
+
     if (filterType !== 'all') {
       result = result.filter((e) => e.employeeType === filterType);
     }
+    
+    if (companyFilter !== 'all') {
+      result = result.filter((e) => (e.companyId?._id || e.companyId?.id) === companyFilter);
+    }
+
     if (search) {
       const lowerSearch = search.toLowerCase();
       result = result.filter(
@@ -56,7 +70,7 @@ export const EmployeesPage = () => {
       );
     }
     setFilteredEmployees(result);
-  }, [search, filterType, employees]);
+  }, [search, filterType, companyFilter, employees]);
 
   const handleEdit = (employee) => {
     setEditingEmployee(employee)
@@ -151,6 +165,17 @@ export const EmployeesPage = () => {
     },
   ]
 
+  const uniqueCompanies = Array.from(
+    new Map(
+      employees
+        .filter((e) => e.companyId)
+        .map((e) => [
+          e.companyId._id || e.companyId.id,
+          e.companyId.companyName || e.companyId.name,
+        ])
+    ).entries()
+  ).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+
   return (
     <DashboardLayout>
       <div className="flex justify-between items-center mb-6">
@@ -165,20 +190,35 @@ export const EmployeesPage = () => {
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6 flex flex-col sm:flex-row justify-between gap-4">
-        <div className="flex space-x-2">
-          {['all', 'permanent', 'manpower'].map((type) => (
-            <button
-              key={type}
-              onClick={() => setFilterType(type)}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                filterType === type
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {type.charAt(0).toUpperCase() + type.slice(1)}
-            </button>
-          ))}
+        <div className="flex flex-wrap gap-3">
+          <div className="flex space-x-2">
+            {['all', 'permanent', 'manpower'].map((type) => (
+              <button
+                key={type}
+                onClick={() => setFilterType(type)}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  filterType === type
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {type.charAt(0).toUpperCase() + type.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          <select
+            value={companyFilter}
+            onChange={(e) => setCompanyFilter(e.target.value)}
+            className="px-4 py-2 rounded-md text-sm font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Companies</option>
+            {uniqueCompanies.map((company) => (
+              <option key={company.id} value={company.id}>
+                {company.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="relative max-w-md w-full">
