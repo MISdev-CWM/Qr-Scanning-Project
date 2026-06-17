@@ -14,6 +14,7 @@ import {
   Scan,
   ClockFading
 } from 'lucide-react'
+import { IoTimerOutline } from "react-icons/io5";
 import { useAuth } from '../../hooks/useAuth'
 
 export const Sidebar = () => {
@@ -58,7 +59,7 @@ export const Sidebar = () => {
     },
     {
       to: '/ot-hours',
-      icon: Clock,
+      icon: IoTimerOutline,
       label: 'OT Hours',
     },
     {
@@ -112,8 +113,8 @@ export const Sidebar = () => {
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-slate-900 text-white flex flex-col">
       <div className="p-6 border-b border-slate-800">
-        <h1 className="text-xl font-bold tracking-wider">
-          WORKFORCE<span className="text-blue-500">{user?.role?.toUpperCase() || 'ADMIN'}</span>
+        <h1 className="text-xl font-bold tracking-wider text-center">
+          EMPLOYEE EFFICIENCY <span className="text-blue-600 ">SYSTEM</span>
         </h1>
       </div>
 

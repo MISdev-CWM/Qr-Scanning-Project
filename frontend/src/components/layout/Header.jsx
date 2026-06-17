@@ -55,7 +55,7 @@ export const Header = ({ withSidebar = false }) => {
           {headerTitle}
         </h2>
         <div className="hidden sm:block text-xs text-slate-500 truncate">
-          Employee Efficiency System
+          Employee Efficiency Monitoring System
         </div>
       </div>
 

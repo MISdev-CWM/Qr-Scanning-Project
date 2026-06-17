@@ -82,14 +82,14 @@ export const LoginForm = () => {
           </label>
         </div>
 
-        <div className="text-sm">
+        {/* <div className="text-sm">
           <a
             href="#"
             className="font-medium text-blue-600 hover:text-blue-500"
           >
             Forgot password?
           </a>
-        </div>
+        </div> */}
       </div>
 
       <Button type="submit" className="w-full" isLoading={isLoading}>
