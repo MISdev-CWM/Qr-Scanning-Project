@@ -9,7 +9,7 @@ export const QRCodeDisplay = ({
   label,
   employeeId,
   name,
-  companyNumber,
+  employeeType,
   companyName
 }) => {
   const qrRef = useRef(null)
@@ -20,10 +20,14 @@ export const QRCodeDisplay = ({
     const qrCanvas = qrRef.current.querySelector('canvas')
     if (!qrCanvas) return
 
+    const normalizedEmployeeType = employeeType?.toLowerCase().replace(/\s+/g, '')
     const lines = []
+
     if (employeeId) lines.push(`Employee ID: ${employeeId}`)
-    if (companyNumber) lines.push(`Company No: ${companyNumber}`)
-    if (companyName) lines.push(`Company: ${companyName}`)
+    if (normalizedEmployeeType === 'permanent' && name) {
+      lines.push(`Employee Name: ${name}`)
+    }
+    if (companyName) lines.push(`Company Name: ${companyName}`)
 
     let pngUrl = ''
     if (lines.length === 0) {

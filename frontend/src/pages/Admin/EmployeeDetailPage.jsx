@@ -124,7 +124,7 @@ export const EmployeeDetailPage = () => {
                 label={employee.name}
                 employeeId={employee.employeeId}
                 name={employee.name}
-                companyNumber={employee.companyId?.companyId}
+                employeeType={employee.employeeType}
                 companyName={employee.companyId?.companyName}
               />
             </div>
