@@ -49,7 +49,7 @@ export const getShiftTimes = async (req, res) => {
 
 export const upsertShiftTimes = async (req, res) => {
   try {
-    const fields = [
+    const timeFields = [
       'manpowerDayStart', 'manpowerDayEnd', 'manpowerNightStart', 'manpowerNightEnd',
       'manpowerSaturdayStart', 'manpowerSaturdayEnd',
       'manpowerSundayStart', 'manpowerSundayEnd',
@@ -59,11 +59,20 @@ export const upsertShiftTimes = async (req, res) => {
       'permanentSaturdayStart', 'permanentSaturdayEnd',
       'permanentSundayStart', 'permanentSundayEnd',
       'manpowerDayOtStart', 'manpowerDayOtEnd', 'manpowerNightOtStart', 'manpowerNightOtEnd',
-      'permanentDayOtStart', 'permanentDayOtEnd', 'permanentNightOtStart', 'permanentNightOtEnd'
+      'manpowerSaturdayOtStart', 'manpowerSaturdayOtEnd', 'manpowerSundayOtStart', 'manpowerSundayOtEnd',
+      'permanentDayOtStart', 'permanentDayOtEnd', 'permanentNightOtStart', 'permanentNightOtEnd',
+      'permanentSaturdayOtStart', 'permanentSaturdayOtEnd', 'permanentSundayOtStart', 'permanentSundayOtEnd',
+    ];
+
+    const rateFields = [
+      'permanentNormalOtRate', 'permanentNightOtRate', 'permanentSaturdayOtRate', 'permanentSundayOtRate',
+      'manpowerDayOtRate', 'manpowerNightOtRate', 'manpowerSaturdayOtRate', 'manpowerSundayOtRate',
     ];
 
     const payload = {};
-    for (const field of fields) {
+
+    // Validate and collect time fields (must be HH:mm)
+    for (const field of timeFields) {
       if (req.body?.[field] === undefined) continue;
 
       const val = normalizeTime(req.body?.[field]);
@@ -74,6 +83,17 @@ export const upsertShiftTimes = async (req, res) => {
         return res.status(400).json({ message: `${field} must be in HH:mm format` });
       }
       payload[field] = val;
+    }
+
+    // Validate and collect numeric rate fields
+    for (const field of rateFields) {
+      if (req.body?.[field] === undefined) continue;
+
+      const num = Number(req.body[field]);
+      if (Number.isNaN(num) || num < 0) {
+        return res.status(400).json({ message: `${field} must be a non-negative number` });
+      }
+      payload[field] = num;
     }
 
     if (Object.keys(payload).length === 0) {

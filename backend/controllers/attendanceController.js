@@ -280,7 +280,7 @@ export const scanAtSecurity = async (req, res) => {
     }
 
     const now = new Date();
-    const workDate = now.toISOString().slice(0, 10); // YYYY-MM-DD
+    let workDate = now.toISOString().slice(0, 10); // YYYY-MM-DD
     const shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 }).lean();
     
     // Resolve employeeType
@@ -297,24 +297,21 @@ export const scanAtSecurity = async (req, res) => {
     // Accept scanType from request, default to alternating if not provided
     let type = scanType;
     if (!type) {
-      // Find all scans for today with this context
-      const logs = await AttendanceLog.find({
-        qrId: qr._id,  // Use QRCode's MongoDB _id, not the UUID
+      // Find the last scan for this QR code, regardless of date, to determine the NEXT scan type
+      const lastLog = await AttendanceLog.findOne({
+        qrId: qr._id,
         companyId,
-        workDate,
-        scanLocation: context // ✅ Use context instead of hardcoded 'SECURITY'
-      }).sort({ scanTime: 1 });
+        scanLocation: context
+      }).sort({ scanTime: -1 });
       
-      if (logs.length === 0) {
+      if (!lastLog) {
         type = 'IN';
       } else {
-        // Alternate between IN and OUT
-        const last = logs[logs.length - 1];
-        type = last.scanType === 'IN' ? 'OUT' : 'IN';
+        type = lastLog.scanType === 'IN' ? 'OUT' : 'IN';
       }
     }
 
-    // Fix: If checking OUT, inherit the shift from the most recent IN scan
+    // Fix: If checking OUT, inherit the workDate and shift from the most recent IN scan
     if (type === 'OUT') {
       const lastInLog = await AttendanceLog.findOne({
         qrId: qr._id,
@@ -323,11 +320,14 @@ export const scanAtSecurity = async (req, res) => {
         scanType: 'IN'
       }).sort({ scanTime: -1 });
 
-      if (lastInLog && lastInLog.shift) {
-        // Ensure the last IN scan was within the last 24 hours so we don't pull an old shift
+      if (lastInLog) {
+        // Ensure the last IN scan was within the last 24 hours so we don't pull an old scan
         const hoursSinceLastIn = (now - new Date(lastInLog.scanTime)) / (1000 * 60 * 60);
         if (hoursSinceLastIn < 24) {
-          shift = lastInLog.shift;
+          workDate = lastInLog.workDate; // Inherit the workDate!
+          if (lastInLog.shift) {
+            shift = lastInLog.shift;     // Inherit the shift!
+          }
         }
       }
     }
@@ -728,13 +728,18 @@ export const getOTSummary = async (req, res) => {
         if (outTime > inTime) {
           totalHours = (outTime - inTime) / (1000 * 60 * 60);
 
-          // OT = checkout time - shift end time (only if checkout is after shift end).
-          // IMPORTANT: shiftEndStr (e.g. "17:00") is a wall-clock time in SHIFT_TIMEZONE
-          // (Asia/Colombo). scanTime values in the DB are UTC. We must convert the
-          // shift-end string to an absolute UTC Date before comparing, otherwise
-          // setHours() would apply the time in server-local time (UTC) and produce
-          // a shift-end that is 5h30m too late, making OT always 0.
-          if (shiftEndStr) {
+          // Permanent employees on the SPECIAL shift do NOT earn any OT.
+          // They work until the special shift end time and nothing beyond that
+          // is counted as overtime, regardless of how late they check out.
+          if (empType === 'permanent' && shift === 'SPECIAL') {
+            otHours = 0;
+          } else if (shiftEndStr) {
+            // OT = checkout time - shift end time (only if checkout is after shift end).
+            // IMPORTANT: shiftEndStr (e.g. "17:00") is a wall-clock time in SHIFT_TIMEZONE
+            // (Asia/Colombo). scanTime values in the DB are UTC. We must convert the
+            // shift-end string to an absolute UTC Date before comparing, otherwise
+            // setHours() would apply the time in server-local time (UTC) and produce
+            // a shift-end that is 5h30m too late, making OT always 0.
             const [endH, endM] = shiftEndStr.split(':').map(Number);
 
             // Build shift-end as a proper UTC Date in the configured timezone
