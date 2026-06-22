@@ -37,6 +37,19 @@ const formatReportDateTime = (value) => {
   return dateValue.toLocaleString()
 }
 
+const formatOtDuration = (decimalHours) => {
+  const hoursValue = Number(decimalHours)
+  if (!Number.isFinite(hoursValue) || hoursValue <= 0) return '0 hrs'
+
+  const totalMinutes = Math.round(hoursValue * 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  if (hours === 0) return `${minutes} mins`
+  if (minutes === 0) return `${hours} hrs`
+  return `${hours} hrs ${minutes} mins`
+}
+
 export const OTHoursPage = () => {
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -207,7 +220,7 @@ export const OTHoursPage = () => {
           <Badge
             variant={otHours > 0 ? 'warning' : 'outline'}
           >
-            {otHours > 0 ? `${otHours} hrs` : '0 hrs'}
+            {formatOtDuration(otHours)}
           </Badge>
         )
       },
