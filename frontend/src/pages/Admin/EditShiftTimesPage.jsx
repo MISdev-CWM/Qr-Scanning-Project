@@ -21,6 +21,8 @@ const defaultShiftForm = {
   manpowerNightEnd: '05:00',
   manpowerSaturdayStart: '08:00',
   manpowerSaturdayEnd: '13:00',
+  manpowerSaturdayNightStart: '20:00',
+  manpowerSaturdayNightEnd: '05:00',
   manpowerSundayStart: '08:00',
   manpowerSundayEnd: '13:00',
 }
@@ -73,6 +75,8 @@ export const EditShiftTimesPage = () => {
           manpowerNightEnd: data?.manpowerNightEnd || defaultShiftForm.manpowerNightEnd,
           manpowerSaturdayStart: data?.manpowerSaturdayStart || defaultShiftForm.manpowerSaturdayStart,
           manpowerSaturdayEnd: data?.manpowerSaturdayEnd || defaultShiftForm.manpowerSaturdayEnd,
+          manpowerSaturdayNightStart: data?.manpowerSaturdayNightStart || defaultShiftForm.manpowerSaturdayNightStart,
+          manpowerSaturdayNightEnd: data?.manpowerSaturdayNightEnd || defaultShiftForm.manpowerSaturdayNightEnd,
           manpowerSundayStart: data?.manpowerSundayStart || defaultShiftForm.manpowerSundayStart,
           manpowerSundayEnd: data?.manpowerSundayEnd || defaultShiftForm.manpowerSundayEnd,
         })
@@ -236,17 +240,31 @@ export const EditShiftTimesPage = () => {
                   disabled={isLoading || isSaving}
                 />
                 <Input
-                  label="Saturday Start"
+                  label="Saturday Day Start"
                   type="time"
                   value={shiftForm.manpowerSaturdayStart}
                   onChange={handleShiftChange('manpowerSaturdayStart')}
                   disabled={isLoading || isSaving}
                 />
                 <Input
-                  label="Saturday End"
+                  label="Saturday Day End"
                   type="time"
                   value={shiftForm.manpowerSaturdayEnd}
                   onChange={handleShiftChange('manpowerSaturdayEnd')}
+                  disabled={isLoading || isSaving}
+                />
+                <Input
+                  label="Saturday Night Start"
+                  type="time"
+                  value={shiftForm.manpowerSaturdayNightStart}
+                  onChange={handleShiftChange('manpowerSaturdayNightStart')}
+                  disabled={isLoading || isSaving}
+                />
+                <Input
+                  label="Saturday Night End"
+                  type="time"
+                  value={shiftForm.manpowerSaturdayNightEnd}
+                  onChange={handleShiftChange('manpowerSaturdayNightEnd')}
                   disabled={isLoading || isSaving}
                 />
                 <Input

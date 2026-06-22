@@ -52,6 +52,7 @@ export const upsertShiftTimes = async (req, res) => {
     const timeFields = [
       'manpowerDayStart', 'manpowerDayEnd', 'manpowerNightStart', 'manpowerNightEnd',
       'manpowerSaturdayStart', 'manpowerSaturdayEnd',
+      'manpowerSaturdayNightStart', 'manpowerSaturdayNightEnd',
       'manpowerSundayStart', 'manpowerSundayEnd',
       'permanentDayStart', 'permanentDayEnd', 'permanentNightStart', 'permanentNightEnd',
       'permanentNormalStart', 'permanentNormalEnd',
@@ -59,7 +60,9 @@ export const upsertShiftTimes = async (req, res) => {
       'permanentSaturdayStart', 'permanentSaturdayEnd',
       'permanentSundayStart', 'permanentSundayEnd',
       'manpowerDayOtStart', 'manpowerDayOtEnd', 'manpowerNightOtStart', 'manpowerNightOtEnd',
-      'manpowerSaturdayOtStart', 'manpowerSaturdayOtEnd', 'manpowerSundayOtStart', 'manpowerSundayOtEnd',
+      'manpowerSaturdayOtStart', 'manpowerSaturdayOtEnd',
+      'manpowerSaturdayNightOtStart', 'manpowerSaturdayNightOtEnd',
+      'manpowerSundayOtStart', 'manpowerSundayOtEnd',
       'permanentDayOtStart', 'permanentDayOtEnd', 'permanentNightOtStart', 'permanentNightOtEnd',
       'permanentSaturdayOtStart', 'permanentSaturdayOtEnd', 'permanentSundayOtStart', 'permanentSundayOtEnd',
     ];

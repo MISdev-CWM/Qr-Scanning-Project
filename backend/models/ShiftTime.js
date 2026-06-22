@@ -26,6 +26,14 @@ const ShiftTimeSchema = new mongoose.Schema(
       type: String,
       default: '13:00',
     },
+    manpowerSaturdayNightStart: {
+      type: String,
+      default: '20:00',
+    },
+    manpowerSaturdayNightEnd: {
+      type: String,
+      default: '05:00',
+    },
     manpowerSundayStart: {
       type: String,
       default: '08:00',
@@ -137,6 +145,14 @@ const ShiftTimeSchema = new mongoose.Schema(
     manpowerSaturdayOtEnd: {
       type: String,
       default: '17:00',
+    },
+    manpowerSaturdayNightOtStart: {
+      type: String,
+      default: '05:00',
+    },
+    manpowerSaturdayNightOtEnd: {
+      type: String,
+      default: '08:00',
     },
     manpowerSundayOtStart: {
       type: String,

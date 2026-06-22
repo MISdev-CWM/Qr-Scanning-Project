@@ -36,6 +36,13 @@ const formatShiftWindow = (start, end, fallback = 'Not set') => {
   return `${start} - ${end}`
 }
 
+const formatShiftLabel = (shift) => {
+  if (shift === 'NORMAL') return 'DAY'
+  if (shift === 'SATURDAY_DAY') return 'SATURDAY DAY'
+  if (shift === 'SATURDAY_NIGHT') return 'SATURDAY NIGHT'
+  return shift || '—'
+}
+
 const toLocalDateString = (dateValue) => {
   const yyyy = dateValue.getFullYear()
   const mm = String(dateValue.getMonth() + 1).padStart(2, '0')
@@ -375,7 +382,7 @@ export const AttendancePage = () => {
               : 'outline'
           }
         >
-          {item.shift === 'NORMAL' ? 'DAY' : item.shift || '—'}
+          {formatShiftLabel(item.shift)}
         </Badge>
       ),
     },
@@ -417,7 +424,8 @@ export const AttendancePage = () => {
   const permSunday = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentSundayStart, shiftTimes?.permanentSundayEnd)
   const manDay = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerDayStart, shiftTimes?.manpowerDayEnd)
   const manNight = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerNightStart, shiftTimes?.manpowerNightEnd)
-  const manSaturday = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerSaturdayStart, shiftTimes?.manpowerSaturdayEnd)
+  const manSaturdayDay = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerSaturdayStart, shiftTimes?.manpowerSaturdayEnd)
+  const manSaturdayNight = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerSaturdayNightStart, shiftTimes?.manpowerSaturdayNightEnd)
   const manSunday = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerSundayStart, shiftTimes?.manpowerSundayEnd)
 
   return (
@@ -481,7 +489,8 @@ export const AttendancePage = () => {
                   <span className="font-medium w-24">Manpower:</span>
                   <Badge variant="outline">Day: {manDay}</Badge>
                   <Badge variant="outline">Night: {manNight}</Badge>
-                  <Badge variant="outline">Saturday: {manSaturday}</Badge>
+                  <Badge variant="outline">Saturday Day: {manSaturdayDay}</Badge>
+                  <Badge variant="outline">Saturday Night: {manSaturdayNight}</Badge>
                   <Badge variant="outline">Sunday: {manSunday}</Badge>
                 </div>
               </div>

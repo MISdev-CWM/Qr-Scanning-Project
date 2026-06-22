@@ -21,6 +21,8 @@ const defaultOtForm = {
   manpowerNightOtEnd:       '08:00',
   manpowerSaturdayOtStart:  '13:00',
   manpowerSaturdayOtEnd:    '17:00',
+  manpowerSaturdayNightOtStart: '05:00',
+  manpowerSaturdayNightOtEnd:   '08:00',
   manpowerSundayOtStart:    '13:00',
   manpowerSundayOtEnd:      '17:00',
 }
@@ -54,6 +56,8 @@ export const EditOTRatesPage = () => {
             manpowerNightOtEnd:       data.manpowerNightOtEnd       || defaultOtForm.manpowerNightOtEnd,
             manpowerSaturdayOtStart:  data.manpowerSaturdayOtStart  || defaultOtForm.manpowerSaturdayOtStart,
             manpowerSaturdayOtEnd:    data.manpowerSaturdayOtEnd    || defaultOtForm.manpowerSaturdayOtEnd,
+            manpowerSaturdayNightOtStart: data.manpowerSaturdayNightOtStart || defaultOtForm.manpowerSaturdayNightOtStart,
+            manpowerSaturdayNightOtEnd:   data.manpowerSaturdayNightOtEnd   || defaultOtForm.manpowerSaturdayNightOtEnd,
             manpowerSundayOtStart:    data.manpowerSundayOtStart    || defaultOtForm.manpowerSundayOtStart,
             manpowerSundayOtEnd:      data.manpowerSundayOtEnd      || defaultOtForm.manpowerSundayOtEnd,
           })
@@ -168,9 +172,14 @@ export const EditOTRatesPage = () => {
             endField="manpowerNightOtEnd"
           />
           <OtRow
-            label="Saturday OT"
+            label="Saturday Day OT"
             startField="manpowerSaturdayOtStart"
             endField="manpowerSaturdayOtEnd"
+          />
+          <OtRow
+            label="Saturday Night OT"
+            startField="manpowerSaturdayNightOtStart"
+            endField="manpowerSaturdayNightOtEnd"
           />
           <OtRow
             label="Sunday OT"

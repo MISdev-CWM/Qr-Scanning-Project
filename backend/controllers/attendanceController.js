@@ -163,6 +163,17 @@ const getShiftForDate = (date, shiftTimes, employeeType = 'permanent') => {
 
   const weekendShift = getDayInTimeZone(date, SHIFT_TIMEZONE);
   if (weekendShift) {
+    if (weekendShift === 'SATURDAY') {
+      const saturdayDayStart = parseTimeToMinutes(shiftTimes.manpowerSaturdayStart);
+      const saturdayNightStart = parseTimeToMinutes(
+        shiftTimes.manpowerSaturdayNightStart || '20:00'
+      );
+
+      if (isWithinShiftStartWindow(minutes, saturdayDayStart)) return 'SATURDAY_DAY';
+      if (isWithinShiftStartWindow(minutes, saturdayNightStart)) return 'SATURDAY_NIGHT';
+      return null;
+    }
+
     const fieldName = `manpower${weekendShift[0]}${weekendShift.slice(1).toLowerCase()}`;
     const weekendStart = parseTimeToMinutes(shiftTimes[`${fieldName}Start`]);
     if (isWithinShiftStartWindow(minutes, weekendStart)) return weekendShift;
@@ -188,7 +199,8 @@ const getShiftEndForEmployee = (shiftTimes, employeeType, shift) => {
   if (employeeType === 'manpower') {
     if (shift === 'DAY') return shiftTimes.manpowerDayEnd;
     if (shift === 'NIGHT') return shiftTimes.manpowerNightEnd;
-    if (shift === 'SATURDAY') return shiftTimes.manpowerSaturdayEnd;
+    if (shift === 'SATURDAY' || shift === 'SATURDAY_DAY') return shiftTimes.manpowerSaturdayEnd;
+    if (shift === 'SATURDAY_NIGHT') return shiftTimes.manpowerSaturdayNightEnd || '05:00';
     if (shift === 'SUNDAY') return shiftTimes.manpowerSundayEnd;
     return null;
   }
@@ -214,6 +226,12 @@ export const getOtWindowForEmployee = (shiftTimes, employeeType, shift, checkInT
           DAY: ['manpowerDayStart', 'manpowerDayOtStart', 'manpowerDayOtEnd'],
           NIGHT: ['manpowerNightStart', 'manpowerNightOtStart', 'manpowerNightOtEnd'],
           SATURDAY: ['manpowerSaturdayStart', 'manpowerSaturdayOtStart', 'manpowerSaturdayOtEnd'],
+          SATURDAY_DAY: ['manpowerSaturdayStart', 'manpowerSaturdayOtStart', 'manpowerSaturdayOtEnd'],
+          SATURDAY_NIGHT: [
+            'manpowerSaturdayNightStart',
+            'manpowerSaturdayNightOtStart',
+            'manpowerSaturdayNightOtEnd',
+          ],
           SUNDAY: ['manpowerSundayStart', 'manpowerSundayOtStart', 'manpowerSundayOtEnd'],
         }
       : {
@@ -225,7 +243,9 @@ export const getOtWindowForEmployee = (shiftTimes, employeeType, shift, checkInT
   const [shiftStartField, otStartField, otEndField] = fieldMap[shift] || [];
   if (!shiftStartField || !otStartField || !otEndField) return null;
 
-  const shiftStartMinutes = parseTimeToMinutes(shiftTimes[shiftStartField]);
+  const shiftStartValue =
+    shiftTimes[shiftStartField] || (shift === 'SATURDAY_NIGHT' ? '20:00' : null);
+  const shiftStartMinutes = parseTimeToMinutes(shiftStartValue);
   const otStartMinutes = parseTimeToMinutes(shiftTimes[otStartField]);
   const otEndMinutes = parseTimeToMinutes(shiftTimes[otEndField]);
   if ([shiftStartMinutes, otStartMinutes, otEndMinutes].some((value) => value === null)) {

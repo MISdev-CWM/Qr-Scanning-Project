@@ -50,6 +50,13 @@ const formatOtDuration = (decimalHours) => {
   return `${hours} hrs ${minutes} mins`
 }
 
+const formatShiftLabel = (shift) => {
+  if (shift === 'NORMAL') return 'DAY'
+  if (shift === 'SATURDAY_DAY') return 'SATURDAY DAY'
+  if (shift === 'SATURDAY_NIGHT') return 'SATURDAY NIGHT'
+  return shift || '—'
+}
+
 export const OTHoursPage = () => {
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -140,7 +147,7 @@ export const OTHoursPage = () => {
           item.employee?.name || 'Unknown',
           item.company?.companyName || 'N/A',
           item.employee?.employeeType || 'permanent',
-          item.shift || '-',
+          formatShiftLabel(item.shift),
           formatReportDateTime(item.firstIn?.scanTime),
           formatReportDateTime(item.lastOut?.scanTime),
           item.totalHours ?? '0.00',
@@ -194,7 +201,7 @@ export const OTHoursPage = () => {
                     : 'outline'
           }
         >
-          {item.shift === 'NORMAL' ? 'DAY' : item.shift || '—'}
+          {formatShiftLabel(item.shift)}
         </Badge>
       ),
     },
