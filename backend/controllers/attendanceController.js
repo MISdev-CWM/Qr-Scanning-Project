@@ -798,6 +798,7 @@ export const getOTSummary = async (req, res) => {
 
       let totalHours = 0;
       let otHours = 0;
+      let afterOtEndHours = 0;
 
       if (firstIn && lastOut && firstIn.scanTime && lastOut.scanTime) {
         const inTime = new Date(firstIn.scanTime);
@@ -811,13 +812,40 @@ export const getOTSummary = async (req, res) => {
             otHours = 0;
           } else {
             otWindow = getOtWindowForEmployee(shiftTimes, empType, shift, inTime);
-            if (otWindow) {
+            const usesNineHourWeekdayRule = ['DAY', 'NIGHT', 'NORMAL', 'ADOC'].includes(shift);
+            const usesSixHourWeekendRule = [
+              'SATURDAY',
+              'SATURDAY_DAY',
+              'SATURDAY_NIGHT',
+              'SUNDAY',
+            ].includes(shift);
+
+            if (usesNineHourWeekdayRule || usesSixHourWeekendRule) {
+              const hoursBeforeOt = usesSixHourWeekendRule ? 6 : 9;
+              const payableOtStart = new Date(
+                inTime.getTime() + hoursBeforeOt * 60 * 60 * 1000
+              );
+              const payableOtEnd =
+                shift === 'ADOC'
+                  ? outTime
+                  : otWindow
+                    ? new Date(Math.min(outTime.getTime(), otWindow.end.getTime()))
+                    : null;
+
+              if (payableOtEnd && payableOtEnd > payableOtStart) {
+                otHours = (payableOtEnd - payableOtStart) / (1000 * 60 * 60);
+              }
+            } else if (otWindow) {
               const payableOtStart = new Date(Math.max(inTime.getTime(), otWindow.start.getTime()));
               const payableOtEnd = new Date(Math.min(outTime.getTime(), otWindow.end.getTime()));
 
               if (payableOtEnd > payableOtStart) {
                 otHours = (payableOtEnd - payableOtStart) / (1000 * 60 * 60);
               }
+            }
+
+            if (otWindow && outTime > otWindow.end) {
+              afterOtEndHours = (outTime - otWindow.end) / (1000 * 60 * 60);
             }
           }
         }
@@ -832,6 +860,7 @@ export const getOTSummary = async (req, res) => {
         lastOut,
         totalHours: totalHours.toFixed(2),
         otHours: otHours.toFixed(2),
+        afterOtEndHours: afterOtEndHours.toFixed(2),
         shiftEnd: shiftEndStr || 'Not Defined',
         otStart: otWindow?.startLabel || null,
         otEnd: otWindow?.endLabel || null,

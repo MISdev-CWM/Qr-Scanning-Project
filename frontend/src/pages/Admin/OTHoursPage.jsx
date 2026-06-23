@@ -140,6 +140,7 @@ export const OTHoursPage = () => {
           'Total Hours',
           'Shift End',
           'OT Hours',
+          'After OT End',
         ],
         rows: rows.map((item) => [
           item.reportDate || '-',
@@ -153,10 +154,11 @@ export const OTHoursPage = () => {
           item.totalHours ?? '0.00',
           item.shiftEnd || 'Not Defined',
           item.otHours ?? '0.00',
+          formatOtDuration(item.afterOtEndHours),
         ]),
         fileName: `ot-hours-report-${startDate}-to-${endDate}.xlsx`,
         sheetName: 'OT Hours',
-        columnWidths: [14, 18, 24, 24, 18, 12, 24, 24, 14, 14, 12],
+        columnWidths: [14, 18, 24, 24, 18, 12, 24, 24, 14, 14, 16, 18],
       }
     } catch (error) {
       console.error('Failed to generate OT hours report', error)
@@ -232,6 +234,19 @@ export const OTHoursPage = () => {
         )
       },
     },
+    {
+      header: 'After OT End',
+      accessor: (item) => {
+        const afterOtEndHours = parseFloat(item.afterOtEndHours || 0)
+        return (
+          <Badge
+            variant={afterOtEndHours > 0 ? 'danger' : 'outline'}
+          >
+            {formatOtDuration(afterOtEndHours)}
+          </Badge>
+        )
+      },
+    },
   ]
 
   return (
@@ -247,6 +262,9 @@ export const OTHoursPage = () => {
           <p className="text-sm text-slate-500 mb-5">
             Note: Permanent employees on the <span className="font-medium text-amber-700">SPECIAL shift</span> do
             not earn OT regardless of checkout time.
+            {' '}Weekday OT starts 9 hours after check-in and stops at the configured OT end time;
+            weekend OT starts 6 hours after check-in and stops at its configured OT end time;
+            ADOC OT has no end-time cap.
           </p>
         </div>
 
