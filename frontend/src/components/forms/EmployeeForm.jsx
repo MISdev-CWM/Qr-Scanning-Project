@@ -60,7 +60,7 @@ export const EmployeeForm = ({
     //     newErrors.employeeId = 'Manpower employees must not have an Employee ID';
     //   }
     // }
-    if (formData.employeeType === 'permanent' || formData.employeeType === 'manpower') {
+    if (['permanent', 'manpower', 'casual'].includes(formData.employeeType)) {
       if (!formData.employeeId || formData.employeeId.length < 2) {
         newErrors.employeeId = 'Employees must have an Employee ID';
       }
@@ -93,10 +93,10 @@ export const EmployeeForm = ({
     }
   };
 
-  // Filter companies based on employeeType
-  const filteredCompanies = companies.filter(
-    (c) => c.employeeTypeAllowed === formData.employeeType
-  );
+  // Casual employees use the same company list as permanent employees.
+  const filteredCompanies = companies.filter((c) => {
+    return c.employeeTypeAllowed === formData.employeeType;
+  });
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -108,6 +108,7 @@ export const EmployeeForm = ({
           options={[
             { value: 'permanent', label: 'Permanent' },
             { value: 'manpower', label: 'Manpower' },
+            { value: 'casual', label: 'Casual' },
           ]}
           error={errors.employeeType}
         />
