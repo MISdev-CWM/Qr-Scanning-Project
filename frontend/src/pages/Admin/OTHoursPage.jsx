@@ -50,13 +50,6 @@ const formatOtDuration = (decimalHours) => {
   return `${hours} hrs ${minutes} mins`
 }
 
-const formatShiftLabel = (shift) => {
-  if (shift === 'NORMAL') return 'DAY'
-  if (shift === 'SATURDAY_DAY') return 'SATURDAY DAY'
-  if (shift === 'SATURDAY_NIGHT') return 'SATURDAY NIGHT'
-  return shift || '—'
-}
-
 export const OTHoursPage = () => {
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -134,13 +127,11 @@ export const OTHoursPage = () => {
           'Employee Name',
           'Company',
           'Employee Type',
-          'Shift',
           'Check In',
           'Check Out',
           'Total Hours',
-          'Shift End',
           'OT Hours',
-          'After OT End',
+          'After OT Limit',
         ],
         rows: rows.map((item) => [
           item.reportDate || '-',
@@ -148,17 +139,15 @@ export const OTHoursPage = () => {
           item.employee?.name || 'Unknown',
           item.company?.companyName || 'N/A',
           item.employee?.employeeType || 'permanent',
-          formatShiftLabel(item.shift),
           formatReportDateTime(item.firstIn?.scanTime),
           formatReportDateTime(item.lastOut?.scanTime),
           item.totalHours ?? '0.00',
-          item.shiftEnd || 'Not Defined',
           item.otHours ?? '0.00',
-          formatOtDuration(item.afterOtEndHours),
+          item.afterOtEndHours ?? '0.00',
         ]),
         fileName: `ot-hours-report-${startDate}-to-${endDate}.xlsx`,
         sheetName: 'OT Hours',
-        columnWidths: [14, 18, 24, 24, 18, 12, 24, 24, 14, 14, 16, 18],
+        columnWidths: [14, 18, 24, 24, 18, 24, 24, 14, 14, 18],
       }
     } catch (error) {
       console.error('Failed to generate OT hours report', error)
@@ -188,26 +177,6 @@ export const OTHoursPage = () => {
       ),
     },
     {
-      header: 'Shift',
-      accessor: (item) => (
-        <Badge
-          variant={
-            item.shift === 'DAY'
-              ? 'success'
-              : item.shift === 'NORMAL'
-                ? 'success'
-                : item.shift === 'SPECIAL'
-                  ? 'danger'
-                  : item.shift === 'NIGHT'
-                    ? 'warning'
-                    : 'outline'
-          }
-        >
-          {formatShiftLabel(item.shift)}
-        </Badge>
-      ),
-    },
-    {
       header: 'Check In',
       accessor: (item) =>
         item.firstIn?.scanTime
@@ -222,27 +191,34 @@ export const OTHoursPage = () => {
           : '-',
     },
     {
+      header: 'Total Hours',
+      accessor: (item) => {
+        const totalHours = parseFloat(item.totalHours || 0)
+        return (
+          <Badge variant={totalHours > 0 ? 'warning' : 'outline'}>
+            {formatOtDuration(totalHours)}
+          </Badge>
+        )
+      },
+    },
+    {
       header: 'OT Hours',
       accessor: (item) => {
-        const otHours = parseFloat(item.otHours || 0);
+        const otHours = parseFloat(item.otHours || 0)
         return (
-          <Badge
-            variant={otHours > 0 ? 'warning' : 'outline'}
-          >
+          <Badge variant={otHours > 0 ? 'warning' : 'outline'}>
             {formatOtDuration(otHours)}
           </Badge>
         )
       },
     },
     {
-      header: 'After OT End',
+      header: 'After OT Limit',
       accessor: (item) => {
-        const afterOtEndHours = parseFloat(item.afterOtEndHours || 0)
+        const afterOtLimitHours = parseFloat(item.afterOtEndHours || 0)
         return (
-          <Badge
-            variant={afterOtEndHours > 0 ? 'danger' : 'outline'}
-          >
-            {formatOtDuration(afterOtEndHours)}
+          <Badge variant={afterOtLimitHours > 0 ? 'danger' : 'outline'}>
+            {formatOtDuration(afterOtLimitHours)}
           </Badge>
         )
       },
@@ -254,17 +230,10 @@ export const OTHoursPage = () => {
       <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">
-            OT Hours Report
+            Total Hours Report
           </h1>
           <p className="text-slate-600">
-            View employee overtime hours by shift and day
-          </p>
-          <p className="text-sm text-slate-500 mb-5">
-            Note: Permanent employees on the <span className="font-medium text-amber-700">SPECIAL shift</span> do
-            not earn OT regardless of checkout time.
-            {' '}Weekday OT starts 9 hours after check-in and stops at the configured OT end time;
-            weekend OT starts 6 hours after check-in and stops at its configured OT end time;
-            ADOC OT has no end-time cap.
+            View employee total hours, OT hours, and overtime beyond the fixed OT limit by day
           </p>
         </div>
 
@@ -274,18 +243,11 @@ export const OTHoursPage = () => {
               variant="outline"
               type="button"
               onClick={openReportModal}
-              className="!border-green-200 !bg-green-100 !text-green-800 hover:!bg-green-200 focus:!ring-green-500"
+              className="border-green-200! bg-green-100! text-green-800! hover:bg-green-200! focus:ring-green-500!"
             >
               Generate Report
             </Button>
 
-            <Button
-              variant="outline"
-              type="button"
-              onClick={() => navigate('/ot-hours/edit-rates')}
-            >
-              Edit OT Rates
-            </Button>
           </div>
           <Input
             type="date"

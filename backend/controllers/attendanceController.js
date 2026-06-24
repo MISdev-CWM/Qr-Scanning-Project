@@ -2,280 +2,10 @@ import AttendanceLog from '../models/AttendanceLog.js';
 import QRCode from '../models/QRCode.js';
 import Employee from '../models/Employee.js';
 import Company from '../models/Company.js';
-import ShiftTime from '../models/ShiftTime.js';
 
 const toWorkDate = (date) => {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
   return date.toISOString().slice(0, 10);
-};
-
-const SHIFT_TIMEZONE = process.env.SHIFT_TIMEZONE || 'Asia/Colombo';
-const SHIFT_DETECTION_WINDOW_MINUTES = 60;
-
-const parseTimeToMinutes = (value) => {
-  if (typeof value !== 'string') return null;
-  const [hh, mm] = value.split(':').map((v) => Number(v));
-  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
-  return hh * 60 + mm;
-};
-
-const isTimeInRange = (value, start, end) => {
-  if (start === null || end === null) return false;
-  if (start <= end) return value >= start && value < end;
-  return value >= start || value < end;
-};
-
-const isWithinShiftStartWindow = (
-  value,
-  start,
-  beforeMinutes = SHIFT_DETECTION_WINDOW_MINUTES,
-  afterMinutes = SHIFT_DETECTION_WINDOW_MINUTES
-) => {
-  if (value === null || start === null) return false;
-  const minutesPerDay = 24 * 60;
-  const windowStart = (start - beforeMinutes + minutesPerDay) % minutesPerDay;
-  const windowEnd = (start + afterMinutes) % minutesPerDay;
-  return isTimeInRange(value, windowStart, windowEnd);
-};
-
-const getMinutesInTimeZone = (date, timeZone) => {
-  try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).formatToParts(date);
-
-    const hh = Number(parts.find((p) => p.type === 'hour')?.value);
-    const mm = Number(parts.find((p) => p.type === 'minute')?.value);
-    if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
-    return hh * 60 + mm;
-  } catch (err) {
-    return null;
-  }
-};
-
-const getDayInTimeZone = (date, timeZone) => {
-  try {
-    const value = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      weekday: 'short',
-    }).format(date);
-
-    if (value === 'Sat') return 'SATURDAY';
-    if (value === 'Sun') return 'SUNDAY';
-    return null;
-  } catch (err) {
-    return null;
-  }
-};
-
-/**
- * Builds an absolute Date object representing a specific HH:MM wall-clock time
- * in the given IANA timezone, on the same calendar date (in that timezone)
- * as referenceDate.
- *
- * e.g. buildTimeInTimeZone(outTime, 17, 0, 'Asia/Colombo')
- *   → a UTC Date equivalent to 17:00:00 Sri Lanka time on the same local date as outTime.
- */
-const getDatePartsInTimeZone = (date, timeZone) => {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-
-  return Object.fromEntries(
-    parts
-      .filter((part) => part.type !== 'literal')
-      .map((part) => [part.type, Number(part.value)])
-  );
-};
-
-const getTimeZoneOffsetMs = (date, timeZone) => {
-  const parts = getDatePartsInTimeZone(date, timeZone);
-  const representedAsUtc = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second
-  );
-
-  return representedAsUtc - Math.floor(date.getTime() / 1000) * 1000;
-};
-
-const buildTimeInTimeZone = (referenceDate, hh, mm, timeZone, dayOffset = 0) => {
-  const referenceParts = getDatePartsInTimeZone(referenceDate, timeZone);
-  const localDate = new Date(
-    Date.UTC(referenceParts.year, referenceParts.month - 1, referenceParts.day + dayOffset)
-  );
-  const wallClockUtc = Date.UTC(
-    localDate.getUTCFullYear(),
-    localDate.getUTCMonth(),
-    localDate.getUTCDate(),
-    hh,
-    mm,
-    0,
-    0
-  );
-
-  let resultMs = wallClockUtc - getTimeZoneOffsetMs(referenceDate, timeZone);
-  resultMs = wallClockUtc - getTimeZoneOffsetMs(new Date(resultMs), timeZone);
-  return new Date(resultMs);
-};
-
-const getShiftForDate = (date, shiftTimes, employeeType = 'permanent') => {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
-  if (!shiftTimes) return null;
-
-  const minutes = getMinutesInTimeZone(date, SHIFT_TIMEZONE);
-  if (minutes === null) return null;
-
-  if (employeeType !== 'manpower') {
-    const weekendShift = getDayInTimeZone(date, SHIFT_TIMEZONE);
-    if (weekendShift) {
-      const fieldName = `permanent${weekendShift[0]}${weekendShift.slice(1).toLowerCase()}`;
-      const weekendStart = parseTimeToMinutes(shiftTimes[`${fieldName}Start`]);
-      if (isWithinShiftStartWindow(minutes, weekendStart)) return weekendShift;
-      return 'ADOC';
-    }
-
-    const normalStart = parseTimeToMinutes(shiftTimes.permanentNormalStart || shiftTimes.permanentDayStart);
-    const specialStart = parseTimeToMinutes(shiftTimes.permanentSpecialStart || shiftTimes.permanentNightStart);
-
-    if ([normalStart, specialStart].some((v) => v === null)) {
-      return null;
-    }
-
-    if (isWithinShiftStartWindow(minutes, normalStart)) return 'NORMAL';
-    if (isWithinShiftStartWindow(minutes, specialStart, 15)) return 'SPECIAL';
-
-    return 'ADOC';
-  }
-
-  const weekendShift = getDayInTimeZone(date, SHIFT_TIMEZONE);
-  if (weekendShift) {
-    if (weekendShift === 'SATURDAY') {
-      const saturdayDayStart = parseTimeToMinutes(shiftTimes.manpowerSaturdayStart);
-      const saturdayNightStart = parseTimeToMinutes(
-        shiftTimes.manpowerSaturdayNightStart || '20:00'
-      );
-
-      if (isWithinShiftStartWindow(minutes, saturdayDayStart)) return 'SATURDAY_DAY';
-      if (isWithinShiftStartWindow(minutes, saturdayNightStart)) return 'SATURDAY_NIGHT';
-      return null;
-    }
-
-    const fieldName = `manpower${weekendShift[0]}${weekendShift.slice(1).toLowerCase()}`;
-    const weekendStart = parseTimeToMinutes(shiftTimes[`${fieldName}Start`]);
-    if (isWithinShiftStartWindow(minutes, weekendStart)) return weekendShift;
-    return null;
-  }
-
-  const dayStart = parseTimeToMinutes(shiftTimes.manpowerDayStart);
-  const nightStart = parseTimeToMinutes(shiftTimes.manpowerNightStart);
-
-  if ([dayStart, nightStart].some((v) => v === null)) {
-    return null;
-  }
-
-  if (isWithinShiftStartWindow(minutes, dayStart)) return 'DAY';
-  if (isWithinShiftStartWindow(minutes, nightStart)) return 'NIGHT';
-
-  return null;
-};
-
-const getShiftEndForEmployee = (shiftTimes, employeeType, shift) => {
-  if (!shiftTimes || !shift) return null;
-
-  if (employeeType === 'manpower') {
-    if (shift === 'DAY') return shiftTimes.manpowerDayEnd;
-    if (shift === 'NIGHT') return shiftTimes.manpowerNightEnd;
-    if (shift === 'SATURDAY' || shift === 'SATURDAY_DAY') return shiftTimes.manpowerSaturdayEnd;
-    if (shift === 'SATURDAY_NIGHT') return shiftTimes.manpowerSaturdayNightEnd || '05:00';
-    if (shift === 'SUNDAY') return shiftTimes.manpowerSundayEnd;
-    return null;
-  }
-
-  const permanentShiftEndFields = {
-    NORMAL: 'permanentNormalEnd',
-    SPECIAL: 'permanentSpecialEnd',
-    SATURDAY: 'permanentSaturdayEnd',
-    SUNDAY: 'permanentSundayEnd',
-    ADOC: null,
-  };
-
-  const field = permanentShiftEndFields[shift];
-  return field ? shiftTimes[field] : null;
-};
-
-export const getOtWindowForEmployee = (shiftTimes, employeeType, shift, checkInTime) => {
-  if (!shiftTimes || !shift || !checkInTime) return null;
-
-  const fieldMap =
-    employeeType === 'manpower'
-      ? {
-          DAY: ['manpowerDayStart', 'manpowerDayOtStart', 'manpowerDayOtEnd'],
-          NIGHT: ['manpowerNightStart', 'manpowerNightOtStart', 'manpowerNightOtEnd'],
-          SATURDAY: ['manpowerSaturdayStart', 'manpowerSaturdayOtStart', 'manpowerSaturdayOtEnd'],
-          SATURDAY_DAY: ['manpowerSaturdayStart', 'manpowerSaturdayOtStart', 'manpowerSaturdayOtEnd'],
-          SATURDAY_NIGHT: [
-            'manpowerSaturdayNightStart',
-            'manpowerSaturdayNightOtStart',
-            'manpowerSaturdayNightOtEnd',
-          ],
-          SUNDAY: ['manpowerSundayStart', 'manpowerSundayOtStart', 'manpowerSundayOtEnd'],
-        }
-      : {
-          NORMAL: ['permanentNormalStart', 'permanentDayOtStart', 'permanentDayOtEnd'],
-          SATURDAY: ['permanentSaturdayStart', 'permanentSaturdayOtStart', 'permanentSaturdayOtEnd'],
-          SUNDAY: ['permanentSundayStart', 'permanentSundayOtStart', 'permanentSundayOtEnd'],
-        };
-
-  const [shiftStartField, otStartField, otEndField] = fieldMap[shift] || [];
-  if (!shiftStartField || !otStartField || !otEndField) return null;
-
-  const shiftStartValue =
-    shiftTimes[shiftStartField] || (shift === 'SATURDAY_NIGHT' ? '20:00' : null);
-  const shiftStartMinutes = parseTimeToMinutes(shiftStartValue);
-  const otStartMinutes = parseTimeToMinutes(shiftTimes[otStartField]);
-  const otEndMinutes = parseTimeToMinutes(shiftTimes[otEndField]);
-  if ([shiftStartMinutes, otStartMinutes, otEndMinutes].some((value) => value === null)) {
-    return null;
-  }
-
-  // Night-shift OT normally begins on the calendar day after check-in.
-  const otStartDayOffset = otStartMinutes < shiftStartMinutes ? 1 : 0;
-  const otEndDayOffset = otStartDayOffset + (otEndMinutes <= otStartMinutes ? 1 : 0);
-  const start = buildTimeInTimeZone(
-    checkInTime,
-    Math.floor(otStartMinutes / 60),
-    otStartMinutes % 60,
-    SHIFT_TIMEZONE,
-    otStartDayOffset
-  );
-  const end = buildTimeInTimeZone(
-    checkInTime,
-    Math.floor(otEndMinutes / 60),
-    otEndMinutes % 60,
-    SHIFT_TIMEZONE,
-    otEndDayOffset
-  );
-
-  return {
-    start,
-    end,
-    startLabel: shiftTimes[otStartField],
-    endLabel: shiftTimes[otEndField],
-  };
 };
 
 // GET /api/attendance/recent?limit=10
@@ -357,18 +87,6 @@ export const scanAtSecurity = async (req, res) => {
 
     const now = new Date();
     let workDate = now.toISOString().slice(0, 10); // YYYY-MM-DD
-    const shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 }).lean();
-    
-    // Resolve employeeType
-    let employeeType = 'permanent';
-    if (employeeId) {
-      const empInfo = await Employee.findById(employeeId).select('employeeType').lean();
-      if (empInfo && empInfo.employeeType) {
-        employeeType = empInfo.employeeType;
-      }
-    }
-    
-    let shift = getShiftForDate(now, shiftTimes, employeeType);
 
     // Accept scanType from request, default to alternating if not provided
     let type = scanType;
@@ -401,9 +119,6 @@ export const scanAtSecurity = async (req, res) => {
         const hoursSinceLastIn = (now - new Date(lastInLog.scanTime)) / (1000 * 60 * 60);
         if (hoursSinceLastIn < 24) {
           workDate = lastInLog.workDate; // Inherit the workDate!
-          if (lastInLog.shift) {
-            shift = lastInLog.shift;     // Inherit the shift!
-          }
         }
       }
     }
@@ -416,7 +131,6 @@ export const scanAtSecurity = async (req, res) => {
       scanLocation: context, // ✅ Use context instead of hardcoded 'SECURITY'
       scanTime: now,
       workDate,
-      shift
     });
 
     await attendance.save();
@@ -471,23 +185,8 @@ export const updateAttendanceLogScanTime = async (req, res) => {
       return res.status(400).json({ message: 'Changing the attendance date is not allowed' });
     }
 
-    const shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 }).lean();
-    
-    let employeeType = 'permanent';
-    if (log.employeeId) {
-      const empInfo = await Employee.findById(log.employeeId).select('employeeType').lean();
-      if (empInfo && empInfo.employeeType) {
-        employeeType = empInfo.employeeType;
-      }
-    }
-
-    const shift = getShiftForDate(parsed, shiftTimes, employeeType);
-
     log.scanTime = parsed;
     log.workDate = newWorkDate;
-    if (shift) {
-      log.shift = shift;
-    }
     log.editedAt = new Date();
     if (req.userId) {
       log.editedBy = req.userId;
@@ -549,25 +248,6 @@ export const createManualAttendanceLog = async (req, res) => {
       return res.status(404).json({ message: 'QR code not found for this employee/company' });
     }
 
-    // Determine shift
-    const shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 }).lean();
-    let shift = getShiftForDate(parsedTime, shiftTimes, employee.employeeType || 'permanent');
-
-    // If type is OUT, inherit shift from the last IN scan if available
-    if (scanType === 'OUT') {
-      const lastInLog = await AttendanceLog.findOne({
-        employeeId,
-        companyId,
-        scanLocation: 'SECURITY',
-        scanType: 'IN',
-        workDate
-      }).sort({ scanTime: -1 });
-
-      if (lastInLog && lastInLog.shift) {
-        shift = lastInLog.shift;
-      }
-    }
-
     const attendance = new AttendanceLog({
       qrId: qr._id,
       companyId,
@@ -576,7 +256,6 @@ export const createManualAttendanceLog = async (req, res) => {
       scanLocation: 'SECURITY',
       scanTime: parsedTime,
       workDate,
-      shift,
       editedAt: new Date(),
       editedBy: req.userId || null
     });
@@ -757,11 +436,7 @@ export const getOTSummary = async (req, res) => {
     // Find all attendance logs for the date
     const logs = await AttendanceLog.find({ workDate: date, scanLocation: 'SECURITY' }).populate('employeeId companyId');
     
-    // Get the global shift times (including OT ranges)
-    const shiftTimes = await ShiftTime.findOne().sort({ updatedAt: -1 }).lean();
-    
-    // Group by employee only (not by shift), so check-in and check-out always
-    // appear on the same row regardless of which shift was saved on each scan.
+    // Group by employee only so check-in and check-out always appear on the same row.
     const summary = {};
     logs.forEach(log => {
       const empId = log.employeeId?._id?.toString() || (log.employeeId && log.employeeId.toString()) || 'unknown';
@@ -785,20 +460,9 @@ export const getOTSummary = async (req, res) => {
       const firstIn = logs.find(l => l.scanType === 'IN');
       const lastOut = [...logs].reverse().find(l => l.scanType === 'OUT');
 
-      // Use the shift recorded on the first IN scan as the authoritative shift.
-      // This ensures that even if old OUT scans had a wrong shift, the row
-      // still shows the correct shift and places check-in + check-out together.
-      const shift = firstIn?.shift || lastOut?.shift || 'UNKNOWN';
-
-      // Keep the normal shift end in the response for display/reporting.
-      // OT itself is calculated from the configured OT start/end window below.
-      const empType = employee?.employeeType || 'permanent';
-      const shiftEndStr = getShiftEndForEmployee(shiftTimes, empType, shift);
-      let otWindow = null;
-
       let totalHours = 0;
       let otHours = 0;
-      let afterOtEndHours = 0;
+      let afterOtLimitHours = 0;
 
       if (firstIn && lastOut && firstIn.scanTime && lastOut.scanTime) {
         const inTime = new Date(firstIn.scanTime);
@@ -807,63 +471,25 @@ export const getOTSummary = async (req, res) => {
         if (outTime > inTime) {
           totalHours = (outTime - inTime) / (1000 * 60 * 60);
 
-          // Permanent employees on the SPECIAL shift do not earn OT.
-          if (empType === 'permanent' && shift === 'SPECIAL') {
-            otHours = 0;
-          } else {
-            otWindow = getOtWindowForEmployee(shiftTimes, empType, shift, inTime);
-            const usesNineHourWeekdayRule = ['DAY', 'NIGHT', 'NORMAL', 'ADOC'].includes(shift);
-            const usesSixHourWeekendRule = [
-              'SATURDAY',
-              'SATURDAY_DAY',
-              'SATURDAY_NIGHT',
-              'SUNDAY',
-            ].includes(shift);
+          const employeeType = employee?.employeeType || 'permanent';
+          const regularHours = 9;
+          const otCapHours = employeeType === 'manpower' ? 3 : 15;
+          const overtimeHours = Math.max(totalHours - regularHours, 0);
 
-            if (usesNineHourWeekdayRule || usesSixHourWeekendRule) {
-              const hoursBeforeOt = usesSixHourWeekendRule ? 6 : 9;
-              const payableOtStart = new Date(
-                inTime.getTime() + hoursBeforeOt * 60 * 60 * 1000
-              );
-              const payableOtEnd =
-                shift === 'ADOC'
-                  ? outTime
-                  : otWindow
-                    ? new Date(Math.min(outTime.getTime(), otWindow.end.getTime()))
-                    : null;
-
-              if (payableOtEnd && payableOtEnd > payableOtStart) {
-                otHours = (payableOtEnd - payableOtStart) / (1000 * 60 * 60);
-              }
-            } else if (otWindow) {
-              const payableOtStart = new Date(Math.max(inTime.getTime(), otWindow.start.getTime()));
-              const payableOtEnd = new Date(Math.min(outTime.getTime(), otWindow.end.getTime()));
-
-              if (payableOtEnd > payableOtStart) {
-                otHours = (payableOtEnd - payableOtStart) / (1000 * 60 * 60);
-              }
-            }
-
-            if (otWindow && outTime > otWindow.end) {
-              afterOtEndHours = (outTime - otWindow.end) / (1000 * 60 * 60);
-            }
-          }
+          otHours = overtimeHours;
+          afterOtLimitHours = Math.max(overtimeHours - otCapHours, 0);
         }
       }
 
       return {
-        id: `${employee?._id || 'unknown'}_${shift}`,
+        id: `${employee?._id || 'unknown'}_summary`,
         employee,
         company,
-        shift,
         firstIn,
         lastOut,
         totalHours: totalHours.toFixed(2),
         otHours: otHours.toFixed(2),
-        afterOtEndHours: afterOtEndHours.toFixed(2),
-        shiftEnd: shiftEndStr || 'Not Defined',
-        otStart: otWindow?.startLabel || null,
-        otEnd: otWindow?.endLabel || null,
+        afterOtEndHours: afterOtLimitHours.toFixed(2),
       };
     });
     
