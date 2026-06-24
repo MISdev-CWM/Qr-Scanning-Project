@@ -9,7 +9,6 @@ import { Modal } from '../../components/ui/Modal'
 import { ReportModal } from '../../components/features/ReportModal'
 import { useToast } from '../../hooks/useToast'
 import { getDailySummary, getNonCheckoutEmployees, updateAttendanceLogScanTime, createManualAttendanceLog } from '../../services/attendance.service'
-import { getShiftTimes } from '../../services/shiftTime.service'
 
 const toTimeValue = (scanTime) => {
   if (!scanTime) return ''
@@ -29,18 +28,6 @@ const toIsoFromDateAndTime = (dateStr, timeStr) => {
   const local = new Date(yyyy, mm - 1, dd, hh, min, 0, 0)
   if (Number.isNaN(local.getTime())) return null
   return local.toISOString()
-}
-
-const formatShiftWindow = (start, end, fallback = 'Not set') => {
-  if (!start || !end) return fallback
-  return `${start} - ${end}`
-}
-
-const formatShiftLabel = (shift) => {
-  if (shift === 'NORMAL') return 'DAY'
-  if (shift === 'SATURDAY_DAY') return 'SATURDAY DAY'
-  if (shift === 'SATURDAY_NIGHT') return 'SATURDAY NIGHT'
-  return shift || '—'
 }
 
 const toLocalDateString = (dateValue) => {
@@ -88,8 +75,6 @@ export const AttendancePage = () => {
   const [editRow, setEditRow] = useState(null)
   const [editCheckIn, setEditCheckIn] = useState('')
   const [editCheckOut, setEditCheckOut] = useState('')
-  const [shiftTimes, setShiftTimes] = useState(null)
-  const [isShiftLoading, setIsShiftLoading] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
   const [isReportGenerating, setIsReportGenerating] = useState(false)
 
@@ -124,7 +109,6 @@ export const AttendancePage = () => {
           checkOut: item.lastOut?.scanTime,
           checkInLogId: item.firstIn?._id,
           checkOutLogId: item.lastOut?._id,
-          shift: item.firstIn?.shift || item.lastOut?.shift || null,
           workDate: workDateFromLog,
           status: item.firstIn && item.lastOut ? 'Present' : item.firstIn ? 'Partial' : 'Absent',
           company: item.company?.companyName || 'N/A'
@@ -154,19 +138,6 @@ export const AttendancePage = () => {
       setNonCheckoutCount(0)
     } finally {
       setIsNonCheckoutLoading(false)
-    }
-  }
-
-  const fetchShiftTimes = async () => {
-    setIsShiftLoading(true)
-    try {
-      const data = await getShiftTimes()
-      setShiftTimes(data)
-    } catch (error) {
-      console.error('Failed to fetch shift times', error)
-      showToast('Failed to load shift times', 'error')
-    } finally {
-      setIsShiftLoading(false)
     }
   }
 
@@ -204,7 +175,6 @@ export const AttendancePage = () => {
             name: item.employee?.name || 'Unknown',
             checkIn: item.firstIn?.scanTime,
             checkOut: item.lastOut?.scanTime,
-            shift: item.firstIn?.shift || item.lastOut?.shift || null,
             workDate: workDateFromLog,
             status: item.firstIn && item.lastOut ? 'Present' : item.firstIn ? 'Partial' : 'Absent',
             company: item.company?.companyName || 'N/A',
@@ -226,7 +196,6 @@ export const AttendancePage = () => {
           'Company',
           'Check In',
           'Check Out',
-          'Shift',
           'Status',
         ],
         rows: rows.map((row) => [
@@ -236,7 +205,6 @@ export const AttendancePage = () => {
           row.company,
           formatReportDateTime(row.checkIn),
           formatReportDateTime(row.checkOut),
-          row.shift || '-',
           row.status,
         ]),
         fileName: `attendance-report-${startDate}-to-${endDate}.xlsx`,
@@ -256,10 +224,6 @@ export const AttendancePage = () => {
     fetchSummary()
     fetchNonCheckoutCount()
   }, [date])
-
-  useEffect(() => {
-    fetchShiftTimes()
-  }, [])
 
   const openEdit = (row) => {
     setEditRow(row)
@@ -367,26 +331,6 @@ export const AttendancePage = () => {
           : '-',
     },
     {
-      header: 'Shift',
-      accessor: (item) => (
-        <Badge
-          variant={
-            item.shift === 'DAY'
-              ? 'success'
-              : item.shift === 'NORMAL'
-              ? 'success'
-              : item.shift === 'SPECIAL'
-              ? 'danger'
-              : item.shift === 'NIGHT'
-              ? 'warning'
-              : 'outline'
-          }
-        >
-          {formatShiftLabel(item.shift)}
-        </Badge>
-      ),
-    },
-    {
       header: 'Status',
       accessor: (item) => (
         <Badge
@@ -418,16 +362,6 @@ export const AttendancePage = () => {
     },
   ]
 
-  const permNormal = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentNormalStart, shiftTimes?.permanentNormalEnd)
-  const permSpecial = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentSpecialStart, shiftTimes?.permanentSpecialEnd)
-  const permSaturday = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentSaturdayStart, shiftTimes?.permanentSaturdayEnd)
-  const permSunday = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentSundayStart, shiftTimes?.permanentSundayEnd)
-  const manDay = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerDayStart, shiftTimes?.manpowerDayEnd)
-  const manNight = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerNightStart, shiftTimes?.manpowerNightEnd)
-  const manSaturdayDay = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerSaturdayStart, shiftTimes?.manpowerSaturdayEnd)
-  const manSaturdayNight = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerSaturdayNightStart, shiftTimes?.manpowerSaturdayNightEnd)
-  const manSunday = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerSundayStart, shiftTimes?.manpowerSundayEnd)
-
   return (
     <DashboardLayout>
       <h1 className="text-2xl font-bold text-slate-900 mb-6">
@@ -452,7 +386,7 @@ export const AttendancePage = () => {
                   type="button"
                   onClick={openReportModal}
                   disabled={isEditOpen}
-                  className="!border-green-200 !bg-green-100 !text-green-800 hover:!bg-green-200 focus:!ring-green-500"
+                  className="border-green-200! bg-green-100! text-green-800! hover:bg-green-200! focus:ring-green-500!"
                 >
                   Generate Report
                 </Button>
@@ -474,35 +408,6 @@ export const AttendancePage = () => {
                   disabled={isEditOpen}
                 />
               </div>
-            </div>
-
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-              <div className="flex flex-col gap-2 text-sm text-slate-700">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="font-medium w-24">Permanent:</span>
-                  <Badge variant="outline">Day: {permNormal}</Badge>
-                  <Badge variant="outline">Special: {permSpecial}</Badge>
-                  <Badge variant="outline">Saturday: {permSaturday}</Badge>
-                  <Badge variant="outline">Sunday: {permSunday}</Badge>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="font-medium w-24">Manpower:</span>
-                  <Badge variant="outline">Day: {manDay}</Badge>
-                  <Badge variant="outline">Night: {manNight}</Badge>
-                  <Badge variant="outline">Saturday Day: {manSaturdayDay}</Badge>
-                  <Badge variant="outline">Saturday Night: {manSaturdayNight}</Badge>
-                  <Badge variant="outline">Sunday: {manSunday}</Badge>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate(`/attendance/edit-shift-times?date=${date}`)}
-                disabled={isShiftLoading}
-              >
-                {shiftTimes ? 'Edit Shift Times' : 'Set Shift Times'}
-              </Button>
             </div>
 
             <Table

@@ -28,17 +28,7 @@ const AttendanceLogSchema = new mongoose.Schema({
   },
   shift: {
     type: String,
-    enum: [
-      'DAY',
-      'NIGHT',
-      'NORMAL',
-      'SPECIAL',
-      'SATURDAY',
-      'SATURDAY_DAY',
-      'SATURDAY_NIGHT',
-      'SUNDAY',
-      'ADOC'
-    ]
+    default: null
   },
   scanTime: {
     type: Date,
