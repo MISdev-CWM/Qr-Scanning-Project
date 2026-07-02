@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { Building2, Users, Workflow } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Input } from '../../components/ui/Input'
 import { Table } from '../../components/ui/Table'
@@ -32,6 +33,8 @@ const formatHours = (value) => {
   if (Number.isNaN(n)) return '0.00'
   return n.toFixed(2)
 }
+
+const normalizeEmployeeType = (value) => value?.toLowerCase().replace(/\s+/g, '') || ''
 
 const AttendanceDateTimeCell = ({ value }) => {
   if (!value) return '—'
@@ -126,6 +129,7 @@ const StatCard = ({ title, value, tone = 'slate' }) => {
     emerald: { accent: 'border-l-emerald-500', gradient: 'from-emerald-50' },
     blue: { accent: 'border-l-blue-500', gradient: 'from-blue-50' },
     purple: { accent: 'border-l-purple-500', gradient: 'from-purple-50' },
+    rose: { accent: 'border-l-rose-500', gradient: 'from-rose-50' },
   }
 
   const styles = toneStyles[tone] ?? toneStyles.slate
@@ -137,6 +141,126 @@ const StatCard = ({ title, value, tone = 'slate' }) => {
         {value}
       </p>
     </Card>
+  )
+}
+
+const EmployeeBreakdownItem = ({ label, value, total, tone = 'slate' }) => {
+  const toneStyles = {
+    amber: { dot: 'bg-amber-500', bar: 'bg-amber-500', text: 'text-amber-700' },
+    emerald: { dot: 'bg-emerald-500', bar: 'bg-emerald-500', text: 'text-emerald-700' },
+    rose: { dot: 'bg-rose-500', bar: 'bg-rose-500', text: 'text-rose-700' },
+    slate: { dot: 'bg-slate-500', bar: 'bg-slate-500', text: 'text-slate-700' },
+  }
+  const styles = toneStyles[tone] ?? toneStyles.slate
+  const percent = total > 0 ? Math.round((Number(value) / total) * 100) : 0
+
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${styles.dot}`} />
+          <span className="truncate text-sm font-medium text-slate-700">{label}</span>
+        </div>
+        <span className={`shrink-0 text-lg font-semibold tabular-nums ${styles.text}`}>
+          {value}
+        </span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+        <div className={`h-full rounded-full ${styles.bar}`} style={{ width: `${percent}%` }} />
+      </div>
+    </div>
+  )
+}
+
+const SummaryTile = ({ title, value, caption, icon: Icon, tone = 'blue' }) => {
+  const toneStyles = {
+    blue: { shell: 'bg-blue-50 text-blue-700 ring-blue-100', border: 'border-t-blue-500' },
+    purple: { shell: 'bg-purple-50 text-purple-700 ring-purple-100', border: 'border-t-purple-500' },
+  }
+  const styles = toneStyles[tone] ?? toneStyles.blue
+
+  return (
+    <div className={`rounded-lg border border-slate-200 border-t-4 ${styles.border} bg-white p-5 shadow-sm`}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-slate-600">{title}</p>
+          <p className="mt-2 text-4xl font-semibold tabular-nums text-slate-950">{value}</p>
+        </div>
+        <div className={`rounded-md p-2.5 ring-1 ${styles.shell}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+      <p className="mt-4 text-sm text-slate-500">{caption}</p>
+    </div>
+  )
+}
+
+const DashboardSummary = ({ summary }) => {
+  const employees = summary?.employees ?? {}
+  const totalEmployees = employees.total ?? 0
+  const manpowerEmployees = employees.manpower ?? 0
+  const permanentEmployees = employees.permanent ?? 0
+  const casualEmployees = employees.casual ?? 0
+
+  return (
+    <section className="grid grid-cols-1 gap-5 xl:grid-cols-12">
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm xl:col-span-7">
+        <div className="flex flex-col gap-5 border-b border-slate-200 bg-white p-5 text-slate-950 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="rounded-lg bg-slate-50 p-3 text-slate-700 ring-1 ring-slate-200">
+              <Users className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-600">Employee Summary</p>
+              <p className="mt-1 text-2xl font-semibold">Registered Employees</p>
+            </div>
+          </div>
+
+          <div className="sm:text-right">
+            <p className="text-sm text-slate-600">Total Employees</p>
+            <p className="mt-1 text-5xl font-semibold tabular-nums">{totalEmployees}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 p-5 md:grid-cols-3">
+          <EmployeeBreakdownItem
+            label="Manpower"
+            value={manpowerEmployees}
+            total={totalEmployees}
+            tone="amber"
+          />
+          <EmployeeBreakdownItem
+            label="Permanent"
+            value={permanentEmployees}
+            total={totalEmployees}
+            tone="emerald"
+          />
+          <EmployeeBreakdownItem
+            label="Casual"
+            value={casualEmployees}
+            total={totalEmployees}
+            tone="rose"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:col-span-5">
+        <SummaryTile
+          title="Processes"
+          value={summary?.processes ?? 0}
+          caption="Active production process records"
+          icon={Workflow}
+          tone="blue"
+        />
+        <SummaryTile
+          title="Manpower Companies"
+          value={summary?.manpowerCompanies ?? 0}
+          caption="Companies registered for manpower"
+          icon={Building2}
+          tone="purple"
+        />
+      </div>
+    </section>
   )
 }
 
@@ -155,13 +279,14 @@ export const PublicDashboardPage = () => {
   const [error, setError] = useState('')
 
   const idleCounts = useMemo(() => {
-    const manpower = idleRows.filter((row) => row.employeeType === 'manpower').length
-    const permanent = idleRows.filter((row) => row.employeeType === 'permanent').length
-    return { manpower, permanent, total: idleRows.length }
+    const manpower = idleRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'manpower').length
+    const permanent = idleRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'permanent').length
+    const casual = idleRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'casual').length
+    return { manpower, permanent, casual, total: idleRows.length }
   }, [idleRows])
 
-  const load = async (isMounted) => {
-    setIsLoading(true)
+  const load = async (shouldUpdate = () => true, showLoader = true) => {
+    if (showLoader) setIsLoading(true)
     setError('')
     try {
       const [summaryData, daily, dailyAvg, idle, monthly, checkInData] = await Promise.all([
@@ -173,7 +298,7 @@ export const PublicDashboardPage = () => {
         getPublicDailyCheckInCount(date),
       ])
 
-      if (!isMounted) return
+      if (!shouldUpdate()) return
 
       setSummary(summaryData)
       setDailyRows(Array.isArray(daily) ? daily : [])
@@ -182,7 +307,7 @@ export const PublicDashboardPage = () => {
       setMonthlyRows(Array.isArray(monthly) ? monthly : [])
       setCheckInCount(Number(checkInData?.count) || 0)
     } catch (e) {
-      if (!isMounted) return
+      if (!shouldUpdate()) return
       setSummary(null)
       setDailyRows([])
       setDailyAvgRows([])
@@ -191,16 +316,22 @@ export const PublicDashboardPage = () => {
       setCheckInCount(0)
       setError(e?.response?.data?.message || e?.message || 'Failed to load dashboard')
     } finally {
-      if (isMounted) setIsLoading(false)
+      if (showLoader && shouldUpdate()) setIsLoading(false)
     }
   }
 
   useEffect(() => {
     let isMounted = true
+    const shouldUpdate = () => isMounted
 
-    load(isMounted)
+    load(shouldUpdate)
+    const refreshInterval = window.setInterval(() => {
+      load(shouldUpdate, false)
+    }, 60000)
+
     return () => {
       isMounted = false
+      window.clearInterval(refreshInterval)
     }
   }, [date, month])
 
@@ -322,13 +453,7 @@ export const PublicDashboardPage = () => {
           </Card>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
-              <StatCard title="Employees (Total)" value={summary?.employees?.total ?? 0} tone="indigo" />
-              <StatCard title="Employees (Manpower)" value={summary?.employees?.manpower ?? 0} tone="amber" />
-              <StatCard title="Employees (Permanent)" value={summary?.employees?.permanent ?? 0} tone="emerald" />
-              <StatCard title="Processes" value={summary?.processes ?? 0} tone="blue" />
-              <StatCard title="Manpower Companies" value={summary?.manpowerCompanies ?? 0} tone="purple" />
-            </div>
+            <DashboardSummary summary={summary} />
 
             <Card className="mt-8 p-5" title={null}>
               <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
@@ -352,17 +477,18 @@ export const PublicDashboardPage = () => {
                     onChange={(e) => setMonth(e.target.value)}
                     className="w-auto"
                   />
-                  <Button variant="outline" onClick={() => load(true)} disabled={isLoading}>
+                  <Button variant="outline" onClick={() => load()} disabled={isLoading}>
                     Refresh
                   </Button>
                 </div>
               </div>
             </Card>
 
-            <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               <StatCard title={`Check-in Persons — ${date}`} value={checkInCount} tone="indigo" />
               <StatCard title={`Idle Manpower — ${date}`} value={idleCounts.manpower} tone="amber" />
               <StatCard title={`Idle Permanent — ${date}`} value={idleCounts.permanent} tone="emerald" />
+              <StatCard title={`Idle Casual — ${date}`} value={idleCounts.casual} tone="rose" />
             </div>
 
             <div className="mt-6 flex flex-col gap-6">

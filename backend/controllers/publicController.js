@@ -11,12 +11,14 @@ export const getPublicDashboardSummary = async (req, res) => {
       totalEmployees,
       manpowerEmployees,
       permanentEmployees,
+      casualEmployees,
       processes,
       manpowerCompanies,
     ] = await Promise.all([
       Employee.countDocuments({}),
       Employee.countDocuments({ employeeType: 'manpower' }),
       Employee.countDocuments({ employeeType: 'permanent' }),
+      Employee.countDocuments({ employeeType: 'casual' }),
       Process.countDocuments({}),
       Company.countDocuments({ employeeTypeAllowed: 'manpower' }),
     ]);
@@ -26,6 +28,7 @@ export const getPublicDashboardSummary = async (req, res) => {
         total: totalEmployees,
         manpower: manpowerEmployees,
         permanent: permanentEmployees,
+        casual: casualEmployees,
       },
       processes,
       manpowerCompanies,
