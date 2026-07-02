@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { Building2, Users, Workflow } from 'lucide-react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { Building2, CalendarDays, ChevronLeft, ChevronRight, Users, Workflow } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Input } from '../../components/ui/Input'
 import { Table } from '../../components/ui/Table'
@@ -35,6 +35,24 @@ const formatHours = (value) => {
 }
 
 const normalizeEmployeeType = (value) => value?.toLowerCase().replace(/\s+/g, '') || ''
+
+const isYyyyMmDd = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+
+const parseYyyyMmDd = (value) => {
+  if (!isYyyyMmDd(value)) return new Date()
+
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+const formatYyyyMmDd = (dateValue) => (
+  `${dateValue.getFullYear()}-${pad2(dateValue.getMonth() + 1)}-${pad2(dateValue.getDate())}`
+)
+
+const formatDisplayDate = (value) => {
+  const dateValue = parseYyyyMmDd(value)
+  return dateValue.toLocaleDateString('en-GB')
+}
 
 const AttendanceDateTimeCell = ({ value }) => {
   if (!value) return '—'
@@ -264,11 +282,138 @@ const DashboardSummary = ({ summary }) => {
   )
 }
 
+const DailyDatePicker = ({ value, onChange, onOpenChange }) => {
+  const selectedDate = parseYyyyMmDd(value)
+  const [isOpen, setIsOpen] = useState(false)
+  const [visibleMonth, setVisibleMonth] = useState(
+    () => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
+  )
+  const pickerRef = useRef(null)
+
+  useEffect(() => {
+    if (!isOpen) {
+      setVisibleMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
+    }
+  }, [isOpen, value])
+
+  useEffect(() => {
+    onOpenChange?.(isOpen)
+  }, [isOpen, onOpenChange])
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target)) {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [])
+
+  const monthLabel = visibleMonth.toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+  })
+  const monthStart = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1)
+  const gridStart = new Date(monthStart)
+  gridStart.setDate(monthStart.getDate() - monthStart.getDay())
+
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(gridStart)
+    day.setDate(gridStart.getDate() + index)
+    return day
+  })
+
+  const goToPreviousMonth = () => {
+    setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))
+  }
+
+  const goToNextMonth = () => {
+    setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))
+  }
+
+  const selectDate = (day) => {
+    onChange(formatYyyyMmDd(day))
+    setIsOpen(false)
+  }
+
+  return (
+    <div ref={pickerRef} className="relative">
+      <label className="block text-sm font-medium text-slate-700 mb-1">Daily Date</label>
+      <button
+        type="button"
+        className="flex h-10 w-52 items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-900 shadow-sm transition hover:border-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <span>{formatDisplayDate(value)}</span>
+        <CalendarDays className="h-4 w-4 text-slate-500" />
+      </button>
+
+      {isOpen ? (
+        <div className="absolute right-0 z-30 mt-2 w-72 rounded-md border border-slate-200 bg-white p-4 shadow-lg">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              className="rounded-md border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+              onClick={goToPreviousMonth}
+              aria-label="Previous month"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="text-sm font-semibold text-slate-900">{monthLabel}</div>
+            <button
+              type="button"
+              className="rounded-md border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+              onClick={goToNextMonth}
+              aria-label="Next month"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-500">
+            {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((dayLabel) => (
+              <div key={dayLabel}>{dayLabel}</div>
+            ))}
+          </div>
+
+          <div className="mt-2 grid grid-cols-7 gap-1">
+            {days.map((day) => {
+              const dayValue = formatYyyyMmDd(day)
+              const isSelected = dayValue === value
+              const isVisibleMonth = day.getMonth() === visibleMonth.getMonth()
+
+              return (
+                <button
+                  key={dayValue}
+                  type="button"
+                  className={`h-8 rounded-md text-sm transition ${
+                    isSelected
+                      ? 'bg-blue-600 font-semibold text-white'
+                      : isVisibleMonth
+                        ? 'text-slate-900 hover:bg-blue-50'
+                        : 'text-slate-400 hover:bg-slate-50'
+                  }`}
+                  onClick={() => selectDate(day)}
+                >
+                  {day.getDate()}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export const PublicDashboardPage = () => {
   const [summary, setSummary] = useState(null)
   const [date, setDate] = useState(todayYyyyMmDd())
   const [month, setMonth] = useState(currentYyyyMm())
   const [checkInCount, setCheckInCount] = useState(0)
+  const isDailyDatePickerActive = useRef(false)
 
   const [dailyRows, setDailyRows] = useState([])
   const [dailyAvgRows, setDailyAvgRows] = useState([])
@@ -326,6 +471,7 @@ export const PublicDashboardPage = () => {
 
     load(shouldUpdate)
     const refreshInterval = window.setInterval(() => {
+      if (isDailyDatePickerActive.current) return
       load(shouldUpdate, false)
     }, 60000)
 
@@ -463,12 +609,12 @@ export const PublicDashboardPage = () => {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-                  <Input
-                    label="Daily Date"
-                    type="date"
+                  <DailyDatePicker
                     value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="w-auto"
+                    onChange={setDate}
+                    onOpenChange={(isOpen) => {
+                      isDailyDatePickerActive.current = isOpen
+                    }}
                   />
                   <Input
                     label="Monthly"
