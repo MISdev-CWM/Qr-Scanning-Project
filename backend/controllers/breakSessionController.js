@@ -5,7 +5,7 @@ import Employee from '../models/Employee.js';
 
 // POST /api/break-session/create
 // Toggle break: if open, end it; if not, start new
-export const createBreak = async (req, res) => {
+export const createBreak = async (req, res) => { 
   try {
     const { breakType, startTime, endTime, durationMinutes } = req.body;
     if (!breakType) {
