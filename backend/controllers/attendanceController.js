@@ -2,6 +2,7 @@ import AttendanceLog from '../models/AttendanceLog.js';
 import QRCode from '../models/QRCode.js';
 import Employee from '../models/Employee.js';
 import Company from '../models/Company.js';
+import WorkSession from '../models/WorkSession.js';
 
 const MAX_OPEN_SHIFT_HOURS = 36;
 const MAX_OPEN_SHIFT_MS = MAX_OPEN_SHIFT_HOURS * 60 * 60 * 1000;
@@ -278,6 +279,18 @@ export const scanAtSecurity = async (req, res) => {
     // Overnight shifts must stay under the original check-in workDate, even if checkout
     // happens on the next calendar day.
     if (type === 'OUT') {
+      const activeWorkSession = await WorkSession.findOne({
+        employeeId,
+        $or: [
+          { endTime: { $exists: false } },
+          { endTime: null },
+        ],
+      }).select('_id');
+
+      if (activeWorkSession) {
+        return res.status(400).json({ message: 'Working Session is not ended' });
+      }
+
       const openInLog = await findOpenCheckInForCheckout({
         employeeId,
         companyId,
