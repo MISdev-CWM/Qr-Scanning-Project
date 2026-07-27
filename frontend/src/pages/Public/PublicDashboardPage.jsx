@@ -15,6 +15,7 @@ import {
   getManpowerDailyHoursByCompany,
   getManpowerMonthlyHoursByCompany,
 } from '../../services/analytics.service'
+import { getWorkSessions } from '../../services/workSession.service'
 
 const pad2 = (n) => String(n).padStart(2, '0')
 
@@ -32,6 +33,86 @@ const formatHours = (value) => {
   const n = Number(value)
   if (Number.isNaN(n)) return '0.00'
   return n.toFixed(2)
+}
+
+const formatHoursMinutes = (minutesValue, hoursValue) => {
+  const hasMinutes = minutesValue !== undefined && minutesValue !== null && minutesValue !== ''
+  const rawMinutes = hasMinutes ? Number(minutesValue) : Number(hoursValue) * 60
+  const totalMinutes = Number.isFinite(rawMinutes) ? Math.max(0, Math.round(rawMinutes)) : 0
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  return `${hours}.${pad2(minutes)}`
+}
+
+const getSessionEmployeeKeys = (session) => {
+  const employee = session?.employeeId
+  return [
+    employee?._id,
+    employee?.employeeId,
+    typeof employee === 'string' ? employee : null,
+  ]
+    .filter(Boolean)
+    .map(String)
+}
+
+const minutesBetween = (startValue, endValue) => {
+  const start = new Date(startValue)
+  const end = new Date(endValue)
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0
+
+  const minutes = (end.getTime() - start.getTime()) / 60000
+  return minutes > 0 ? minutes : 0
+}
+
+const applyActiveWorkSessionsToIdleRows = (idleRows, workSessions) => {
+  const safeIdleRows = Array.isArray(idleRows) ? idleRows : []
+  const safeWorkSessions = Array.isArray(workSessions) ? workSessions : []
+  const now = new Date()
+  const activeSessionsByEmployee = new Map()
+
+  safeWorkSessions
+    .filter((session) => session?.startTime && !session?.endTime)
+    .forEach((session) => {
+      getSessionEmployeeKeys(session).forEach((key) => {
+        const list = activeSessionsByEmployee.get(key) || []
+        list.push(session)
+        activeSessionsByEmployee.set(key, list)
+      })
+    })
+
+  if (activeSessionsByEmployee.size === 0) return safeIdleRows
+
+  return safeIdleRows.map((row) => {
+    const rowKeys = [row.employeeId, row.employeeCode].filter(Boolean).map(String)
+    const activeSessionMap = new Map()
+
+    rowKeys
+      .flatMap((key) => activeSessionsByEmployee.get(key) || [])
+      .forEach((session, index) => {
+        activeSessionMap.set(String(session?._id || session?.id || index), session)
+      })
+
+    const activeSessions = Array.from(activeSessionMap.values())
+
+    if (activeSessions.length === 0) return row
+
+    const activeWorkMinutes = activeSessions.reduce(
+      (total, session) => total + minutesBetween(session.startTime, now),
+      0
+    )
+    const workMinutes = (Number(row.workMinutes) || 0) + activeWorkMinutes
+    const idleMinutes = Math.max((Number(row.idleMinutes) || 0) - activeWorkMinutes, 0)
+
+    return {
+      ...row,
+      workMinutes,
+      idleMinutes,
+      workHours: workMinutes / 60,
+      idleHours: idleMinutes / 60,
+    }
+  })
 }
 
 const normalizeEmployeeType = (value) => value?.toLowerCase().replace(/\s+/g, '') || ''
@@ -434,13 +515,14 @@ export const PublicDashboardPage = () => {
     if (showLoader) setIsLoading(true)
     setError('')
     try {
-      const [summaryData, daily, dailyAvg, idle, monthly, checkInData] = await Promise.all([
+      const [summaryData, daily, dailyAvg, idle, monthly, checkInData, workSessions] = await Promise.all([
         getPublicDashboardSummary(),
         getManpowerDailyHoursByCompany(date),
         getManpowerDailyAverageHoursByCompany(date),
         getPublicEmployeeDailyIdleTime(date),
         getManpowerMonthlyHoursByCompany(month),
         getPublicDailyCheckInCount(date),
+        getWorkSessions({ date }),
       ])
 
       if (!shouldUpdate()) return
@@ -448,7 +530,7 @@ export const PublicDashboardPage = () => {
       setSummary(summaryData)
       setDailyRows(Array.isArray(daily) ? daily : [])
       setDailyAvgRows(Array.isArray(dailyAvg) ? dailyAvg : [])
-      setIdleRows(Array.isArray(idle) ? idle : [])
+      setIdleRows(applyActiveWorkSessionsToIdleRows(idle, workSessions))
       setMonthlyRows(Array.isArray(monthly) ? monthly : [])
       setCheckInCount(Number(checkInData?.count) || 0)
     } catch (e) {
@@ -552,22 +634,22 @@ export const PublicDashboardPage = () => {
     },
     {
       header: 'Presence (hrs)',
-      accessor: (row) => formatHours(row.presenceHours),
+      accessor: (row) => formatHoursMinutes(row.presenceMinutes, row.presenceHours),
       className: 'text-right',
     },
     {
       header: 'Work (hrs)',
-      accessor: (row) => formatHours(row.workHours),
+      accessor: (row) => formatHoursMinutes(row.workMinutes, row.workHours),
       className: 'text-right',
     },
     {
       header: 'Break (hrs)',
-      accessor: (row) => formatHours(row.breakHours),
+      accessor: (row) => formatHoursMinutes(row.breakMinutes, row.breakHours),
       className: 'text-right',
     },
     {
       header: 'Idle (hrs)',
-      accessor: (row) => formatHours(row.idleHours),
+      accessor: (row) => formatHoursMinutes(row.idleMinutes, row.idleHours),
       className: 'text-right',
     },
   ]
