@@ -22,7 +22,7 @@ const qrCodeSchema = new mongoose.Schema({
   },
   qrType: {
     type: String,
-    enum: ['manpower', 'permanent'],
+    enum: ['manpower', 'permanent', 'casual'],
     required: true
   },
   createdAt: {

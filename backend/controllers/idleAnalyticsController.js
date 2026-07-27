@@ -82,6 +82,8 @@ export const getDailyEmployeeIdleTime = async (req, res) => {
     const { date } = req.query;
     const day = String(date || '');
     const { start, end } = parseYyyyMmDdToLocalDayRange(day);
+    const endNextDay = new Date(end);
+    endNextDay.setDate(endNextDay.getDate() + 1);
     const now = new Date();
 
     const [checkInRows, checkOutRows] = await Promise.all([
@@ -104,9 +106,9 @@ export const getDailyEmployeeIdleTime = async (req, res) => {
       AttendanceLog.aggregate([
         {
           $match: {
-            workDate: day,
             scanLocation: 'SECURITY',
-            scanType: 'OUT'
+            scanType: 'OUT',
+            scanTime: { $gte: start, $lte: endNextDay }
           }
         },
         {
@@ -199,7 +201,11 @@ export const getDailyEmployeeIdleTime = async (req, res) => {
         const companyId = employee.companyId || companyIdFromAttendanceMap.get(key) || null;
         const companyName = companyId ? companyNameMap.get(String(companyId)) : null;
 
-        const rawCheckOutTime = checkOutMap.get(key) || null;
+        const candidateCheckOutTime = checkOutMap.get(key) || null;
+        const rawCheckOutTime =
+          candidateCheckOutTime && new Date(candidateCheckOutTime) > new Date(checkInTime)
+            ? candidateCheckOutTime
+            : null;
         const effectiveCheckOutTime = rawCheckOutTime || now;
 
         const presenceMinutes =

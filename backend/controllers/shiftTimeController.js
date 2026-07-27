@@ -52,21 +52,13 @@ export const upsertShiftTimes = async (req, res) => {
     const timeFields = [
       'manpowerDayStart', 'manpowerDayEnd', 'manpowerNightStart', 'manpowerNightEnd',
       'manpowerSaturdayStart', 'manpowerSaturdayEnd',
+      'manpowerSaturdayNightStart', 'manpowerSaturdayNightEnd',
       'manpowerSundayStart', 'manpowerSundayEnd',
       'permanentDayStart', 'permanentDayEnd', 'permanentNightStart', 'permanentNightEnd',
       'permanentNormalStart', 'permanentNormalEnd',
       'permanentSpecialStart', 'permanentSpecialEnd',
       'permanentSaturdayStart', 'permanentSaturdayEnd',
       'permanentSundayStart', 'permanentSundayEnd',
-      'manpowerDayOtStart', 'manpowerDayOtEnd', 'manpowerNightOtStart', 'manpowerNightOtEnd',
-      'manpowerSaturdayOtStart', 'manpowerSaturdayOtEnd', 'manpowerSundayOtStart', 'manpowerSundayOtEnd',
-      'permanentDayOtStart', 'permanentDayOtEnd', 'permanentNightOtStart', 'permanentNightOtEnd',
-      'permanentSaturdayOtStart', 'permanentSaturdayOtEnd', 'permanentSundayOtStart', 'permanentSundayOtEnd',
-    ];
-
-    const rateFields = [
-      'permanentNormalOtRate', 'permanentNightOtRate', 'permanentSaturdayOtRate', 'permanentSundayOtRate',
-      'manpowerDayOtRate', 'manpowerNightOtRate', 'manpowerSaturdayOtRate', 'manpowerSundayOtRate',
     ];
 
     const payload = {};
@@ -83,17 +75,6 @@ export const upsertShiftTimes = async (req, res) => {
         return res.status(400).json({ message: `${field} must be in HH:mm format` });
       }
       payload[field] = val;
-    }
-
-    // Validate and collect numeric rate fields
-    for (const field of rateFields) {
-      if (req.body?.[field] === undefined) continue;
-
-      const num = Number(req.body[field]);
-      if (Number.isNaN(num) || num < 0) {
-        return res.status(400).json({ message: `${field} must be a non-negative number` });
-      }
-      payload[field] = num;
     }
 
     if (Object.keys(payload).length === 0) {

@@ -31,7 +31,7 @@ const employeeSchema = new mongoose.Schema({
   },
   employeeType: {
     type: String,
-    enum: ['manpower', 'permanent'],
+    enum: ['manpower', 'permanent', 'casual'],
     required: true
   },
   companyId: {

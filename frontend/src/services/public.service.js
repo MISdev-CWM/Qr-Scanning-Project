@@ -11,3 +11,10 @@ export const getPublicEmployeeDailyIdleTime = async (date) => {
   })
   return response.data?.rows || []
 }
+
+export const getPublicDailyCheckInCount = async (date) => {
+  const response = await api.get('/api/public/attendance/daily-count', {
+    params: { date },
+  })
+  return response.data || { count: 0 }
+}

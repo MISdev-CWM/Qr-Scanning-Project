@@ -26,6 +26,14 @@ const ShiftTimeSchema = new mongoose.Schema(
       type: String,
       default: '13:00',
     },
+    manpowerSaturdayNightStart: {
+      type: String,
+      default: '20:00',
+    },
+    manpowerSaturdayNightEnd: {
+      type: String,
+      default: '05:00',
+    },
     manpowerSundayStart: {
       type: String,
       default: '08:00',
@@ -81,70 +89,6 @@ const ShiftTimeSchema = new mongoose.Schema(
     permanentSundayEnd: {
       type: String,
       default: '13:00',
-    },
-    manpowerDayOtStart: {
-      type: String,
-      default: '17:00',
-    },
-    manpowerDayOtEnd: {
-      type: String,
-      default: '20:00',
-    },
-    manpowerNightOtStart: {
-      type: String,
-      default: '05:00',
-    },
-    manpowerNightOtEnd: {
-      type: String,
-      default: '08:00',
-    },
-    permanentDayOtStart: {
-      type: String,
-      default: '17:00',
-    },
-    permanentDayOtEnd: {
-      type: String,
-      default: '20:00',
-    },
-    permanentNightOtStart: {
-      type: String,
-      default: '05:00',
-    },
-    permanentNightOtEnd: {
-      type: String,
-      default: '08:00',
-    },
-    permanentSaturdayOtStart: {
-      type: String,
-      default: '13:00',
-    },
-    permanentSaturdayOtEnd: {
-      type: String,
-      default: '17:00',
-    },
-    permanentSundayOtStart: {
-      type: String,
-      default: '13:00',
-    },
-    permanentSundayOtEnd: {
-      type: String,
-      default: '17:00',
-    },
-    manpowerSaturdayOtStart: {
-      type: String,
-      default: '13:00',
-    },
-    manpowerSaturdayOtEnd: {
-      type: String,
-      default: '17:00',
-    },
-    manpowerSundayOtStart: {
-      type: String,
-      default: '13:00',
-    },
-    manpowerSundayOtEnd: {
-      type: String,
-      default: '17:00',
     },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,

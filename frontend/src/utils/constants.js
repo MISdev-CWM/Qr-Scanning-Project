@@ -27,6 +27,7 @@ export const ROLE_DESCRIPTIONS = {
 export const EMPLOYEE_TYPES = {
   PERMANENT: 'permanent',
   MANPOWER: 'manpower',
+  CASUAL: 'casual',
 }
 
 export const ATTENDANCE_TYPES = {

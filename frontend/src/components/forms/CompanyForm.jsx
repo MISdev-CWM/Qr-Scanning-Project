@@ -29,7 +29,7 @@ export const CompanyForm = ({
     if (!formData.companyName || formData.companyName.length < 3) {
       newErrors.companyName = 'Company Name must be at least 3 characters';
     }
-    if (!formData.employeeTypeAllowed || !['manpower', 'permanent'].includes(formData.employeeTypeAllowed)) {
+    if (!formData.employeeTypeAllowed || !['manpower', 'permanent', 'casual'].includes(formData.employeeTypeAllowed)) {
       newErrors.employeeTypeAllowed = 'Select a valid employee type';
     }
     setErrors(newErrors);
@@ -91,6 +91,7 @@ export const CompanyForm = ({
           <option value="">Select type</option>
           <option value="manpower">Manpower</option>
           <option value="permanent">Permanent</option>
+          <option value="casual">Casual</option>
         </select>
         {errors.employeeTypeAllowed && (
           <div className="text-red-500 text-xs mt-1">{errors.employeeTypeAllowed}</div>

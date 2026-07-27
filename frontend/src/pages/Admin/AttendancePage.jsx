@@ -9,7 +9,6 @@ import { Modal } from '../../components/ui/Modal'
 import { ReportModal } from '../../components/features/ReportModal'
 import { useToast } from '../../hooks/useToast'
 import { getDailySummary, getNonCheckoutEmployees, updateAttendanceLogScanTime, createManualAttendanceLog } from '../../services/attendance.service'
-import { getShiftTimes } from '../../services/shiftTime.service'
 
 const toTimeValue = (scanTime) => {
   if (!scanTime) return ''
@@ -29,11 +28,6 @@ const toIsoFromDateAndTime = (dateStr, timeStr) => {
   const local = new Date(yyyy, mm - 1, dd, hh, min, 0, 0)
   if (Number.isNaN(local.getTime())) return null
   return local.toISOString()
-}
-
-const formatShiftWindow = (start, end, fallback = 'Not set') => {
-  if (!start || !end) return fallback
-  return `${start} - ${end}`
 }
 
 const toLocalDateString = (dateValue) => {
@@ -64,6 +58,22 @@ const formatReportDateTime = (value) => {
   return dateValue.toLocaleString()
 }
 
+const AttendanceDateTimeCell = ({ value }) => {
+  if (!value) return '-'
+
+  const dateValue = new Date(value)
+  if (Number.isNaN(dateValue.getTime())) return '-'
+
+  return (
+    <div className="leading-tight">
+      <div className="text-slate-900">{dateValue.toLocaleTimeString()}</div>
+      <div className="mt-1 text-xs text-slate-500">
+        {dateValue.toLocaleDateString('en-GB')}
+      </div>
+    </div>
+  )
+}
+
 export const AttendancePage = () => {
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -79,10 +89,10 @@ export const AttendancePage = () => {
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [editRow, setEditRow] = useState(null)
+  const [editCheckInDate, setEditCheckInDate] = useState('')
   const [editCheckIn, setEditCheckIn] = useState('')
+  const [editCheckOutDate, setEditCheckOutDate] = useState('')
   const [editCheckOut, setEditCheckOut] = useState('')
-  const [shiftTimes, setShiftTimes] = useState(null)
-  const [isShiftLoading, setIsShiftLoading] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
   const [isReportGenerating, setIsReportGenerating] = useState(false)
 
@@ -117,7 +127,6 @@ export const AttendancePage = () => {
           checkOut: item.lastOut?.scanTime,
           checkInLogId: item.firstIn?._id,
           checkOutLogId: item.lastOut?._id,
-          shift: item.firstIn?.shift || item.lastOut?.shift || null,
           workDate: workDateFromLog,
           status: item.firstIn && item.lastOut ? 'Present' : item.firstIn ? 'Partial' : 'Absent',
           company: item.company?.companyName || 'N/A'
@@ -147,19 +156,6 @@ export const AttendancePage = () => {
       setNonCheckoutCount(0)
     } finally {
       setIsNonCheckoutLoading(false)
-    }
-  }
-
-  const fetchShiftTimes = async () => {
-    setIsShiftLoading(true)
-    try {
-      const data = await getShiftTimes()
-      setShiftTimes(data)
-    } catch (error) {
-      console.error('Failed to fetch shift times', error)
-      showToast('Failed to load shift times', 'error')
-    } finally {
-      setIsShiftLoading(false)
     }
   }
 
@@ -197,7 +193,6 @@ export const AttendancePage = () => {
             name: item.employee?.name || 'Unknown',
             checkIn: item.firstIn?.scanTime,
             checkOut: item.lastOut?.scanTime,
-            shift: item.firstIn?.shift || item.lastOut?.shift || null,
             workDate: workDateFromLog,
             status: item.firstIn && item.lastOut ? 'Present' : item.firstIn ? 'Partial' : 'Absent',
             company: item.company?.companyName || 'N/A',
@@ -219,7 +214,6 @@ export const AttendancePage = () => {
           'Company',
           'Check In',
           'Check Out',
-          'Shift',
           'Status',
         ],
         rows: rows.map((row) => [
@@ -229,7 +223,6 @@ export const AttendancePage = () => {
           row.company,
           formatReportDateTime(row.checkIn),
           formatReportDateTime(row.checkOut),
-          row.shift || '-',
           row.status,
         ]),
         fileName: `attendance-report-${startDate}-to-${endDate}.xlsx`,
@@ -250,13 +243,12 @@ export const AttendancePage = () => {
     fetchNonCheckoutCount()
   }, [date])
 
-  useEffect(() => {
-    fetchShiftTimes()
-  }, [])
-
   const openEdit = (row) => {
+    const fallbackDate = row?.workDate || date
     setEditRow(row)
+    setEditCheckInDate(row?.checkIn ? toLocalDateString(new Date(row.checkIn)) : fallbackDate)
     setEditCheckIn(toTimeValue(row?.checkIn))
+    setEditCheckOutDate(row?.checkOut ? toLocalDateString(new Date(row.checkOut)) : fallbackDate)
     setEditCheckOut(toTimeValue(row?.checkOut))
     setIsEditOpen(true)
   }
@@ -265,7 +257,9 @@ export const AttendancePage = () => {
     if (isSaving) return
     setIsEditOpen(false)
     setEditRow(null)
+    setEditCheckInDate('')
     setEditCheckIn('')
+    setEditCheckOutDate('')
     setEditCheckOut('')
   }
 
@@ -273,58 +267,91 @@ export const AttendancePage = () => {
     if (!editRow) return
     setIsSaving(true)
     try {
-      const updates = []
       const baseDate = editRow.workDate || date
+      let updatesCount = 0
+
+      if (editRow.checkInLogId && (!editCheckInDate || !editCheckIn)) {
+        showToast('Please select both check-in date and time', 'warning')
+        return
+      }
+
+      if (!editRow.checkInLogId && editCheckIn && !editCheckInDate) {
+        showToast('Please select check-in date', 'warning')
+        return
+      }
+
+      if (editRow.checkOutLogId && (!editCheckOutDate || !editCheckOut)) {
+        showToast('Please select both check-out date and time', 'warning')
+        return
+      }
+
+      if (!editRow.checkOutLogId && editCheckOut && !editCheckOutDate) {
+        showToast('Please select check-out date', 'warning')
+        return
+      }
 
       if (editRow.checkInLogId) {
-        const original = toTimeValue(editRow.checkIn)
-        const iso = editCheckIn && editCheckIn !== original ? toIsoFromDateAndTime(baseDate, editCheckIn) : null
-        if (iso) {
-          updates.push(updateAttendanceLogScanTime(editRow.checkInLogId, iso))
+        const originalTime = toTimeValue(editRow.checkIn)
+        const originalDate = editRow.checkIn ? toLocalDateString(new Date(editRow.checkIn)) : baseDate
+        const hasChanged = editCheckIn !== originalTime || editCheckInDate !== originalDate
+
+        if (hasChanged) {
+          const iso = toIsoFromDateAndTime(editCheckInDate, editCheckIn)
+          if (iso) {
+            await updateAttendanceLogScanTime(editRow.checkInLogId, iso, editCheckInDate)
+            updatesCount += 1
+          }
         }
       } else if (editCheckIn) {
-        const iso = toIsoFromDateAndTime(baseDate, editCheckIn)
+        const iso = toIsoFromDateAndTime(editCheckInDate, editCheckIn)
         if (iso) {
-          updates.push(
-            createManualAttendanceLog({
-              employeeId: editRow.employeeObjectId,
-              companyId: editRow.companyObjectId,
-              scanType: 'IN',
-              scanTime: iso,
-              workDate: baseDate,
-            })
-          )
+          await createManualAttendanceLog({
+            employeeId: editRow.employeeObjectId,
+            companyId: editRow.companyObjectId,
+            scanType: 'IN',
+            scanTime: iso,
+            workDate: editCheckInDate,
+          })
+          updatesCount += 1
         }
       }
 
+      const targetCheckoutWorkDate = editCheckInDate || baseDate
       if (editRow.checkOutLogId) {
-        const original = toTimeValue(editRow.checkOut)
-        const iso = editCheckOut && editCheckOut !== original ? toIsoFromDateAndTime(baseDate, editCheckOut) : null
-        if (iso) {
-          updates.push(updateAttendanceLogScanTime(editRow.checkOutLogId, iso))
+        const originalTime = toTimeValue(editRow.checkOut)
+        const originalDate = editRow.checkOut ? toLocalDateString(new Date(editRow.checkOut)) : baseDate
+        const hasChanged =
+          editCheckOut !== originalTime ||
+          editCheckOutDate !== originalDate ||
+          targetCheckoutWorkDate !== baseDate
+
+        if (hasChanged) {
+          const iso = toIsoFromDateAndTime(editCheckOutDate, editCheckOut)
+          if (iso) {
+            await updateAttendanceLogScanTime(editRow.checkOutLogId, iso, targetCheckoutWorkDate)
+            updatesCount += 1
+          }
         }
       } else if (editCheckOut) {
-        const iso = toIsoFromDateAndTime(baseDate, editCheckOut)
+        const iso = toIsoFromDateAndTime(editCheckOutDate, editCheckOut)
         if (iso) {
-          updates.push(
-            createManualAttendanceLog({
-              employeeId: editRow.employeeObjectId,
-              companyId: editRow.companyObjectId,
-              scanType: 'OUT',
-              scanTime: iso,
-              workDate: baseDate,
-            })
-          )
+          await createManualAttendanceLog({
+            employeeId: editRow.employeeObjectId,
+            companyId: editRow.companyObjectId,
+            scanType: 'OUT',
+            scanTime: iso,
+            workDate: targetCheckoutWorkDate,
+          })
+          updatesCount += 1
         }
       }
 
-      if (updates.length === 0) {
+      if (updatesCount === 0) {
         showToast('Nothing to update', 'warning')
         return
       }
 
-      await Promise.all(updates)
-      showToast('Attendance times updated', 'success')
+      showToast('Attendance date and time updated', 'success')
       closeEdit()
       await fetchSummary()
     } catch (error) {
@@ -347,37 +374,11 @@ export const AttendancePage = () => {
     },
     {
       header: 'Check In',
-      accessor: (item) =>
-        item.checkIn
-          ? new Date(item.checkIn).toLocaleTimeString()
-          : '-',
+      accessor: (item) => <AttendanceDateTimeCell value={item.checkIn} />,
     },
     {
       header: 'Check Out',
-      accessor: (item) =>
-        item.checkOut
-          ? new Date(item.checkOut).toLocaleTimeString()
-          : '-',
-    },
-    {
-      header: 'Shift',
-      accessor: (item) => (
-        <Badge
-          variant={
-            item.shift === 'DAY'
-              ? 'success'
-              : item.shift === 'NORMAL'
-              ? 'success'
-              : item.shift === 'SPECIAL'
-              ? 'danger'
-              : item.shift === 'NIGHT'
-              ? 'warning'
-              : 'outline'
-          }
-        >
-          {item.shift === 'NORMAL' ? 'DAY' : item.shift || '—'}
-        </Badge>
-      ),
+      accessor: (item) => <AttendanceDateTimeCell value={item.checkOut} />,
     },
     {
       header: 'Status',
@@ -411,15 +412,6 @@ export const AttendancePage = () => {
     },
   ]
 
-  const permNormal = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentNormalStart, shiftTimes?.permanentNormalEnd)
-  const permSpecial = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentSpecialStart, shiftTimes?.permanentSpecialEnd)
-  const permSaturday = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentSaturdayStart, shiftTimes?.permanentSaturdayEnd)
-  const permSunday = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.permanentSundayStart, shiftTimes?.permanentSundayEnd)
-  const manDay = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerDayStart, shiftTimes?.manpowerDayEnd)
-  const manNight = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerNightStart, shiftTimes?.manpowerNightEnd)
-  const manSaturday = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerSaturdayStart, shiftTimes?.manpowerSaturdayEnd)
-  const manSunday = isShiftLoading ? '...' : formatShiftWindow(shiftTimes?.manpowerSundayStart, shiftTimes?.manpowerSundayEnd)
-
   return (
     <DashboardLayout>
       <h1 className="text-2xl font-bold text-slate-900 mb-6">
@@ -444,7 +436,7 @@ export const AttendancePage = () => {
                   type="button"
                   onClick={openReportModal}
                   disabled={isEditOpen}
-                  className="!border-green-200 !bg-green-100 !text-green-800 hover:!bg-green-200 focus:!ring-green-500"
+                  className="border-green-200! bg-green-100! text-green-800! hover:bg-green-200! focus:ring-green-500!"
                 >
                   Generate Report
                 </Button>
@@ -466,34 +458,6 @@ export const AttendancePage = () => {
                   disabled={isEditOpen}
                 />
               </div>
-            </div>
-
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-              <div className="flex flex-col gap-2 text-sm text-slate-700">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="font-medium w-24">Permanent:</span>
-                  <Badge variant="outline">Day: {permNormal}</Badge>
-                  <Badge variant="outline">Special: {permSpecial}</Badge>
-                  <Badge variant="outline">Saturday: {permSaturday}</Badge>
-                  <Badge variant="outline">Sunday: {permSunday}</Badge>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="font-medium w-24">Manpower:</span>
-                  <Badge variant="outline">Day: {manDay}</Badge>
-                  <Badge variant="outline">Night: {manNight}</Badge>
-                  <Badge variant="outline">Saturday: {manSaturday}</Badge>
-                  <Badge variant="outline">Sunday: {manSunday}</Badge>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate(`/attendance/edit-shift-times?date=${date}`)}
-                disabled={isShiftLoading}
-              >
-                {shiftTimes ? 'Edit Shift Times' : 'Set Shift Times'}
-              </Button>
             </div>
 
             <Table
@@ -518,23 +482,41 @@ export const AttendancePage = () => {
       <Modal
         isOpen={isEditOpen}
         onClose={closeEdit}
-        title={editRow ? `Edit Times - ${editRow.name}` : 'Edit Times'}
+        title={editRow ? `Edit Attendance - ${editRow.name}` : 'Edit Attendance'}
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-              label="Check In Time"
-              type="time"
-              value={editCheckIn}
-              onChange={(e) => setEditCheckIn(e.target.value)}
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-slate-700">Check In</p>
+              <Input
+                label="Date"
+                type="date"
+                value={editCheckInDate}
+                onChange={(e) => setEditCheckInDate(e.target.value)}
+              />
+              <Input
+                label="Time"
+                type="time"
+                value={editCheckIn}
+                onChange={(e) => setEditCheckIn(e.target.value)}
+              />
+            </div>
 
-            <Input
-              label="Check Out Time"
-              type="time"
-              value={editCheckOut}
-              onChange={(e) => setEditCheckOut(e.target.value)}
-            />
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-slate-700">Check Out</p>
+              <Input
+                label="Date"
+                type="date"
+                value={editCheckOutDate}
+                onChange={(e) => setEditCheckOutDate(e.target.value)}
+              />
+              <Input
+                label="Time"
+                type="time"
+                value={editCheckOut}
+                onChange={(e) => setEditCheckOut(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="flex justify-end gap-3">

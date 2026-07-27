@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { Building2, CalendarDays, ChevronLeft, ChevronRight, Users, Workflow } from 'lucide-react'
 import { Card } from '../../components/ui/Card'
 import { Input } from '../../components/ui/Input'
 import { Table } from '../../components/ui/Table'
 import { Button } from '../../components/ui/Button'
 import { Spinner } from '../../components/ui/Spinner'
 import {
+  getPublicDailyCheckInCount,
   getPublicDashboardSummary,
   getPublicEmployeeDailyIdleTime,
 } from '../../services/public.service'
@@ -13,6 +15,7 @@ import {
   getManpowerDailyHoursByCompany,
   getManpowerMonthlyHoursByCompany,
 } from '../../services/analytics.service'
+import { getWorkSessions } from '../../services/workSession.service'
 
 const pad2 = (n) => String(n).padStart(2, '0')
 
@@ -32,11 +35,120 @@ const formatHours = (value) => {
   return n.toFixed(2)
 }
 
-const formatTime = (value) => {
+const formatHoursMinutes = (minutesValue, hoursValue) => {
+  const hasMinutes = minutesValue !== undefined && minutesValue !== null && minutesValue !== ''
+  const rawMinutes = hasMinutes ? Number(minutesValue) : Number(hoursValue) * 60
+  const totalMinutes = Number.isFinite(rawMinutes) ? Math.max(0, Math.round(rawMinutes)) : 0
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  return `${hours}.${pad2(minutes)}`
+}
+
+const getSessionEmployeeKeys = (session) => {
+  const employee = session?.employeeId
+  return [
+    employee?._id,
+    employee?.employeeId,
+    typeof employee === 'string' ? employee : null,
+  ]
+    .filter(Boolean)
+    .map(String)
+}
+
+const minutesBetween = (startValue, endValue) => {
+  const start = new Date(startValue)
+  const end = new Date(endValue)
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0
+
+  const minutes = (end.getTime() - start.getTime()) / 60000
+  return minutes > 0 ? minutes : 0
+}
+
+const applyActiveWorkSessionsToIdleRows = (idleRows, workSessions) => {
+  const safeIdleRows = Array.isArray(idleRows) ? idleRows : []
+  const safeWorkSessions = Array.isArray(workSessions) ? workSessions : []
+  const now = new Date()
+  const activeSessionsByEmployee = new Map()
+
+  safeWorkSessions
+    .filter((session) => session?.startTime && !session?.endTime)
+    .forEach((session) => {
+      getSessionEmployeeKeys(session).forEach((key) => {
+        const list = activeSessionsByEmployee.get(key) || []
+        list.push(session)
+        activeSessionsByEmployee.set(key, list)
+      })
+    })
+
+  if (activeSessionsByEmployee.size === 0) return safeIdleRows
+
+  return safeIdleRows.map((row) => {
+    const rowKeys = [row.employeeId, row.employeeCode].filter(Boolean).map(String)
+    const activeSessionMap = new Map()
+
+    rowKeys
+      .flatMap((key) => activeSessionsByEmployee.get(key) || [])
+      .forEach((session, index) => {
+        activeSessionMap.set(String(session?._id || session?.id || index), session)
+      })
+
+    const activeSessions = Array.from(activeSessionMap.values())
+
+    if (activeSessions.length === 0) return row
+
+    const activeWorkMinutes = activeSessions.reduce(
+      (total, session) => total + minutesBetween(session.startTime, now),
+      0
+    )
+    const workMinutes = (Number(row.workMinutes) || 0) + activeWorkMinutes
+    const idleMinutes = Math.max((Number(row.idleMinutes) || 0) - activeWorkMinutes, 0)
+
+    return {
+      ...row,
+      workMinutes,
+      idleMinutes,
+      workHours: workMinutes / 60,
+      idleHours: idleMinutes / 60,
+    }
+  })
+}
+
+const normalizeEmployeeType = (value) => value?.toLowerCase().replace(/\s+/g, '') || ''
+
+const isYyyyMmDd = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+
+const parseYyyyMmDd = (value) => {
+  if (!isYyyyMmDd(value)) return new Date()
+
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+const formatYyyyMmDd = (dateValue) => (
+  `${dateValue.getFullYear()}-${pad2(dateValue.getMonth() + 1)}-${pad2(dateValue.getDate())}`
+)
+
+const formatDisplayDate = (value) => {
+  const dateValue = parseYyyyMmDd(value)
+  return dateValue.toLocaleDateString('en-GB')
+}
+
+const AttendanceDateTimeCell = ({ value }) => {
   if (!value) return '—'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+  const dateValue = new Date(value)
+  if (Number.isNaN(dateValue.getTime())) return '—'
+
+  return (
+    <div className="leading-tight">
+      <div className="text-slate-900">{dateValue.toLocaleTimeString()}</div>
+      <div className="mt-1 text-xs text-slate-500">
+        {dateValue.toLocaleDateString('en-GB')}
+      </div>
+    </div>
+  )
 }
 
 const MonthlyBarChart = ({ rows }) => {
@@ -116,6 +228,7 @@ const StatCard = ({ title, value, tone = 'slate' }) => {
     emerald: { accent: 'border-l-emerald-500', gradient: 'from-emerald-50' },
     blue: { accent: 'border-l-blue-500', gradient: 'from-blue-50' },
     purple: { accent: 'border-l-purple-500', gradient: 'from-purple-50' },
+    rose: { accent: 'border-l-rose-500', gradient: 'from-rose-50' },
   }
 
   const styles = toneStyles[tone] ?? toneStyles.slate
@@ -130,10 +243,258 @@ const StatCard = ({ title, value, tone = 'slate' }) => {
   )
 }
 
+const EmployeeBreakdownItem = ({ label, value, total, tone = 'slate' }) => {
+  const toneStyles = {
+    amber: { dot: 'bg-amber-500', bar: 'bg-amber-500', text: 'text-amber-700' },
+    emerald: { dot: 'bg-emerald-500', bar: 'bg-emerald-500', text: 'text-emerald-700' },
+    rose: { dot: 'bg-rose-500', bar: 'bg-rose-500', text: 'text-rose-700' },
+    slate: { dot: 'bg-slate-500', bar: 'bg-slate-500', text: 'text-slate-700' },
+  }
+  const styles = toneStyles[tone] ?? toneStyles.slate
+  const percent = total > 0 ? Math.round((Number(value) / total) * 100) : 0
+
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${styles.dot}`} />
+          <span className="truncate text-sm font-medium text-slate-700">{label}</span>
+        </div>
+        <span className={`shrink-0 text-lg font-semibold tabular-nums ${styles.text}`}>
+          {value}
+        </span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+        <div className={`h-full rounded-full ${styles.bar}`} style={{ width: `${percent}%` }} />
+      </div>
+    </div>
+  )
+}
+
+const SummaryTile = ({ title, value, caption, icon: Icon, tone = 'blue' }) => {
+  const toneStyles = {
+    blue: { shell: 'bg-blue-50 text-blue-700 ring-blue-100', border: 'border-t-blue-500' },
+    purple: { shell: 'bg-purple-50 text-purple-700 ring-purple-100', border: 'border-t-purple-500' },
+  }
+  const styles = toneStyles[tone] ?? toneStyles.blue
+
+  return (
+    <div className={`rounded-lg border border-slate-200 border-t-4 ${styles.border} bg-white p-5 shadow-sm`}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-slate-600">{title}</p>
+          <p className="mt-2 text-4xl font-semibold tabular-nums text-slate-950">{value}</p>
+        </div>
+        <div className={`rounded-md p-2.5 ring-1 ${styles.shell}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+      <p className="mt-4 text-sm text-slate-500">{caption}</p>
+    </div>
+  )
+}
+
+const DashboardSummary = ({ summary }) => {
+  const employees = summary?.employees ?? {}
+  const totalEmployees = employees.total ?? 0
+  const manpowerEmployees = employees.manpower ?? 0
+  const permanentEmployees = employees.permanent ?? 0
+  const casualEmployees = employees.casual ?? 0
+
+  return (
+    <section className="grid grid-cols-1 gap-5 xl:grid-cols-12">
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm xl:col-span-7">
+        <div className="flex flex-col gap-5 border-b border-slate-200 bg-white p-5 text-slate-950 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="rounded-lg bg-slate-50 p-3 text-slate-700 ring-1 ring-slate-200">
+              <Users className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-600">Employee Summary</p>
+              <p className="mt-1 text-2xl font-semibold">Registered Employees</p>
+            </div>
+          </div>
+
+          <div className="sm:text-right">
+            <p className="text-sm text-slate-600">Total Employees</p>
+            <p className="mt-1 text-5xl font-semibold tabular-nums">{totalEmployees}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 p-5 md:grid-cols-3">
+          <EmployeeBreakdownItem
+            label="Manpower"
+            value={manpowerEmployees}
+            total={totalEmployees}
+            tone="amber"
+          />
+          <EmployeeBreakdownItem
+            label="Permanent"
+            value={permanentEmployees}
+            total={totalEmployees}
+            tone="emerald"
+          />
+          <EmployeeBreakdownItem
+            label="Casual"
+            value={casualEmployees}
+            total={totalEmployees}
+            tone="rose"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:col-span-5">
+        <SummaryTile
+          title="Processes"
+          value={summary?.processes ?? 0}
+          caption="Active production process records"
+          icon={Workflow}
+          tone="blue"
+        />
+        <SummaryTile
+          title="Manpower Companies"
+          value={summary?.manpowerCompanies ?? 0}
+          caption="Companies registered for manpower"
+          icon={Building2}
+          tone="purple"
+        />
+      </div>
+    </section>
+  )
+}
+
+const DailyDatePicker = ({ value, onChange, onOpenChange }) => {
+  const selectedDate = parseYyyyMmDd(value)
+  const [isOpen, setIsOpen] = useState(false)
+  const [visibleMonth, setVisibleMonth] = useState(
+    () => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
+  )
+  const pickerRef = useRef(null)
+
+  useEffect(() => {
+    if (!isOpen) {
+      setVisibleMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
+    }
+  }, [isOpen, value])
+
+  useEffect(() => {
+    onOpenChange?.(isOpen)
+  }, [isOpen, onOpenChange])
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target)) {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [])
+
+  const monthLabel = visibleMonth.toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+  })
+  const monthStart = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1)
+  const gridStart = new Date(monthStart)
+  gridStart.setDate(monthStart.getDate() - monthStart.getDay())
+
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(gridStart)
+    day.setDate(gridStart.getDate() + index)
+    return day
+  })
+
+  const goToPreviousMonth = () => {
+    setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))
+  }
+
+  const goToNextMonth = () => {
+    setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))
+  }
+
+  const selectDate = (day) => {
+    onChange(formatYyyyMmDd(day))
+    setIsOpen(false)
+  }
+
+  return (
+    <div ref={pickerRef} className="relative">
+      <label className="block text-sm font-medium text-slate-700 mb-1">Daily Date</label>
+      <button
+        type="button"
+        className="flex h-10 w-52 items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-900 shadow-sm transition hover:border-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <span>{formatDisplayDate(value)}</span>
+        <CalendarDays className="h-4 w-4 text-slate-500" />
+      </button>
+
+      {isOpen ? (
+        <div className="absolute right-0 z-30 mt-2 w-72 rounded-md border border-slate-200 bg-white p-4 shadow-lg">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              className="rounded-md border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+              onClick={goToPreviousMonth}
+              aria-label="Previous month"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="text-sm font-semibold text-slate-900">{monthLabel}</div>
+            <button
+              type="button"
+              className="rounded-md border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+              onClick={goToNextMonth}
+              aria-label="Next month"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-500">
+            {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((dayLabel) => (
+              <div key={dayLabel}>{dayLabel}</div>
+            ))}
+          </div>
+
+          <div className="mt-2 grid grid-cols-7 gap-1">
+            {days.map((day) => {
+              const dayValue = formatYyyyMmDd(day)
+              const isSelected = dayValue === value
+              const isVisibleMonth = day.getMonth() === visibleMonth.getMonth()
+
+              return (
+                <button
+                  key={dayValue}
+                  type="button"
+                  className={`h-8 rounded-md text-sm transition ${
+                    isSelected
+                      ? 'bg-blue-600 font-semibold text-white'
+                      : isVisibleMonth
+                        ? 'text-slate-900 hover:bg-blue-50'
+                        : 'text-slate-400 hover:bg-slate-50'
+                  }`}
+                  onClick={() => selectDate(day)}
+                >
+                  {day.getDate()}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export const PublicDashboardPage = () => {
   const [summary, setSummary] = useState(null)
   const [date, setDate] = useState(todayYyyyMmDd())
   const [month, setMonth] = useState(currentYyyyMm())
+  const [checkInCount, setCheckInCount] = useState(0)
+  const isDailyDatePickerActive = useRef(false)
 
   const [dailyRows, setDailyRows] = useState([])
   const [dailyAvgRows, setDailyAvgRows] = useState([])
@@ -143,44 +504,62 @@ export const PublicDashboardPage = () => {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const load = async (isMounted) => {
-    setIsLoading(true)
+  const idleCounts = useMemo(() => {
+    const manpower = idleRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'manpower').length
+    const permanent = idleRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'permanent').length
+    const casual = idleRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'casual').length
+    return { manpower, permanent, casual, total: idleRows.length }
+  }, [idleRows])
+
+  const load = async (shouldUpdate = () => true, showLoader = true) => {
+    if (showLoader) setIsLoading(true)
     setError('')
     try {
-      const [summaryData, daily, dailyAvg, idle, monthly] = await Promise.all([
+      const [summaryData, daily, dailyAvg, idle, monthly, checkInData, workSessions] = await Promise.all([
         getPublicDashboardSummary(),
         getManpowerDailyHoursByCompany(date),
         getManpowerDailyAverageHoursByCompany(date),
         getPublicEmployeeDailyIdleTime(date),
         getManpowerMonthlyHoursByCompany(month),
+        getPublicDailyCheckInCount(date),
+        getWorkSessions({ date }),
       ])
 
-      if (!isMounted) return
+      if (!shouldUpdate()) return
 
       setSummary(summaryData)
       setDailyRows(Array.isArray(daily) ? daily : [])
       setDailyAvgRows(Array.isArray(dailyAvg) ? dailyAvg : [])
-      setIdleRows(Array.isArray(idle) ? idle : [])
+      setIdleRows(applyActiveWorkSessionsToIdleRows(idle, workSessions))
       setMonthlyRows(Array.isArray(monthly) ? monthly : [])
+      setCheckInCount(Number(checkInData?.count) || 0)
     } catch (e) {
-      if (!isMounted) return
+      if (!shouldUpdate()) return
       setSummary(null)
       setDailyRows([])
       setDailyAvgRows([])
       setIdleRows([])
       setMonthlyRows([])
+      setCheckInCount(0)
       setError(e?.response?.data?.message || e?.message || 'Failed to load dashboard')
     } finally {
-      if (isMounted) setIsLoading(false)
+      if (showLoader && shouldUpdate()) setIsLoading(false)
     }
   }
 
   useEffect(() => {
     let isMounted = true
+    const shouldUpdate = () => isMounted
 
-    load(isMounted)
+    load(shouldUpdate)
+    const refreshInterval = window.setInterval(() => {
+      if (isDailyDatePickerActive.current) return
+      load(shouldUpdate, false)
+    }, 60000)
+
     return () => {
       isMounted = false
+      window.clearInterval(refreshInterval)
     }
   }, [date, month])
 
@@ -232,37 +611,45 @@ export const PublicDashboardPage = () => {
       accessor: (row) => row.employeeName || '—',
     },
     {
+      header: 'Employee Code',
+      accessor: (row) => row.employeeCode || '—',
+    },
+    {
+      header: 'Type',
+      accessor: (row) => row.employeeType || '—',
+    },
+    {
       header: 'Company',
       accessor: (row) => row.companyName || '—',
     },
     {
       header: 'Check In',
-      accessor: (row) => formatTime(row.checkInTime),
+      accessor: (row) => <AttendanceDateTimeCell value={row.checkInTime} />,
       className: 'text-right',
     },
     {
       header: 'Check Out',
-      accessor: (row) => (row.isCheckedOut ? formatTime(row.checkOutTime) : '—'),
+      accessor: (row) => (row.isCheckedOut ? <AttendanceDateTimeCell value={row.checkOutTime} /> : '—'),
       className: 'text-right',
     },
     {
       header: 'Presence (hrs)',
-      accessor: (row) => formatHours(row.presenceHours),
+      accessor: (row) => formatHoursMinutes(row.presenceMinutes, row.presenceHours),
       className: 'text-right',
     },
     {
       header: 'Work (hrs)',
-      accessor: (row) => formatHours(row.workHours),
+      accessor: (row) => formatHoursMinutes(row.workMinutes, row.workHours),
       className: 'text-right',
     },
     {
       header: 'Break (hrs)',
-      accessor: (row) => formatHours(row.breakHours),
+      accessor: (row) => formatHoursMinutes(row.breakMinutes, row.breakHours),
       className: 'text-right',
     },
     {
       header: 'Idle (hrs)',
-      accessor: (row) => formatHours(row.idleHours),
+      accessor: (row) => formatHoursMinutes(row.idleMinutes, row.idleHours),
       className: 'text-right',
     },
   ]
@@ -294,13 +681,7 @@ export const PublicDashboardPage = () => {
           </Card>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
-              <StatCard title="Employees (Total)" value={summary?.employees?.total ?? 0} tone="indigo" />
-              <StatCard title="Employees (Manpower)" value={summary?.employees?.manpower ?? 0} tone="amber" />
-              <StatCard title="Employees (Permanent)" value={summary?.employees?.permanent ?? 0} tone="emerald" />
-              <StatCard title="Processes" value={summary?.processes ?? 0} tone="blue" />
-              <StatCard title="Manpower Companies" value={summary?.manpowerCompanies ?? 0} tone="purple" />
-            </div>
+            <DashboardSummary summary={summary} />
 
             <Card className="mt-8 p-5" title={null}>
               <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
@@ -310,12 +691,12 @@ export const PublicDashboardPage = () => {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-                  <Input
-                    label="Daily Date"
-                    type="date"
+                  <DailyDatePicker
                     value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="w-auto"
+                    onChange={setDate}
+                    onOpenChange={(isOpen) => {
+                      isDailyDatePickerActive.current = isOpen
+                    }}
                   />
                   <Input
                     label="Monthly"
@@ -324,12 +705,19 @@ export const PublicDashboardPage = () => {
                     onChange={(e) => setMonth(e.target.value)}
                     className="w-auto"
                   />
-                  <Button variant="outline" onClick={() => load(true)} disabled={isLoading}>
+                  <Button variant="outline" onClick={() => load()} disabled={isLoading}>
                     Refresh
                   </Button>
                 </div>
               </div>
             </Card>
+
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard title={`Check-in Persons — ${date}`} value={checkInCount} tone="indigo" />
+              <StatCard title={`Idle Manpower — ${date}`} value={idleCounts.manpower} tone="amber" />
+              <StatCard title={`Idle Permanent — ${date}`} value={idleCounts.permanent} tone="emerald" />
+              <StatCard title={`Idle Casual — ${date}`} value={idleCounts.casual} tone="rose" />
+            </div>
 
             <div className="mt-6 flex flex-col gap-6">
               <Card title={`Daily manpower work hours (Company-wise) — ${date}`}>

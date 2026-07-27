@@ -164,13 +164,14 @@ export const getNonCheckoutEmployees = async (date) => {
 }
 
 // Admin-only: update scan time for a specific attendance log
-export const updateAttendanceLogScanTime = async (attendanceLogId, scanTime) => {
+export const updateAttendanceLogScanTime = async (attendanceLogId, scanTime, workDate) => {
   if (!attendanceLogId) {
     throw new Error('attendanceLogId is required')
   }
 
   const response = await api.put(`/api/attendance/logs/${attendanceLogId}/scan-time`, {
     scanTime,
+    ...(workDate ? { workDate } : {}),
   })
 
   return response.data?.attendance || response.data

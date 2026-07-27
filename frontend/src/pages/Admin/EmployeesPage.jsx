@@ -120,7 +120,7 @@ export const EmployeesPage = () => {
     {
       header: 'Type',
       accessor: (item) => (
-        <Badge variant={item.employeeType === 'permanent' ? 'info' : 'warning'}>
+        <Badge variant={item.employeeType === 'permanent' ? 'success' : item.employeeType === 'casual' ? 'outline' : 'warning'}>
           {item.employeeType?.toUpperCase()}
         </Badge>
       ),
@@ -192,7 +192,7 @@ export const EmployeesPage = () => {
       <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6 flex flex-col sm:flex-row justify-between gap-4">
         <div className="flex flex-wrap gap-3">
           <div className="flex space-x-2">
-            {['all', 'permanent', 'manpower'].map((type) => (
+            {['all', 'permanent', 'manpower', 'casual'].map((type) => (
               <button
                 key={type}
                 onClick={() => setFilterType(type)}
