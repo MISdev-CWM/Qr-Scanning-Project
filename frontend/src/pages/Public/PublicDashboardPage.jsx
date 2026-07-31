@@ -11,6 +11,7 @@ import {
   getPublicEmployeeDailyIdleTime,
 } from '../../services/public.service'
 import {
+  getCurrentIdleEmployees,
   getManpowerDailyAverageHoursByCompany,
   getManpowerDailyHoursByCompany,
   getManpowerMonthlyHoursByCompany,
@@ -499,27 +500,30 @@ export const PublicDashboardPage = () => {
   const [dailyRows, setDailyRows] = useState([])
   const [dailyAvgRows, setDailyAvgRows] = useState([])
   const [idleRows, setIdleRows] = useState([])
+  const [currentIdleRows, setCurrentIdleRows] = useState([])
   const [monthlyRows, setMonthlyRows] = useState([])
 
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
 
   const idleCounts = useMemo(() => {
-    const manpower = idleRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'manpower').length
-    const permanent = idleRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'permanent').length
-    const casual = idleRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'casual').length
-    return { manpower, permanent, casual, total: idleRows.length }
-  }, [idleRows])
+    const safeRows = Array.isArray(currentIdleRows) ? currentIdleRows : []
+    const manpower = safeRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'manpower').length
+    const permanent = safeRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'permanent').length
+    const casual = safeRows.filter((row) => normalizeEmployeeType(row.employeeType) === 'casual').length
+    return { manpower, permanent, casual, total: safeRows.length }
+  }, [currentIdleRows])
 
   const load = async (shouldUpdate = () => true, showLoader = true) => {
     if (showLoader) setIsLoading(true)
     setError('')
     try {
-      const [summaryData, daily, dailyAvg, idle, monthly, checkInData, workSessions] = await Promise.all([
+      const [summaryData, daily, dailyAvg, idle, currentIdle, monthly, checkInData, workSessions] = await Promise.all([
         getPublicDashboardSummary(),
         getManpowerDailyHoursByCompany(date),
         getManpowerDailyAverageHoursByCompany(date),
         getPublicEmployeeDailyIdleTime(date),
+        getCurrentIdleEmployees(date),
         getManpowerMonthlyHoursByCompany(month),
         getPublicDailyCheckInCount(date),
         getWorkSessions({ date }),
@@ -531,6 +535,7 @@ export const PublicDashboardPage = () => {
       setDailyRows(Array.isArray(daily) ? daily : [])
       setDailyAvgRows(Array.isArray(dailyAvg) ? dailyAvg : [])
       setIdleRows(applyActiveWorkSessionsToIdleRows(idle, workSessions))
+      setCurrentIdleRows(Array.isArray(currentIdle) ? currentIdle : [])
       setMonthlyRows(Array.isArray(monthly) ? monthly : [])
       setCheckInCount(Number(checkInData?.count) || 0)
     } catch (e) {
@@ -539,6 +544,7 @@ export const PublicDashboardPage = () => {
       setDailyRows([])
       setDailyAvgRows([])
       setIdleRows([])
+      setCurrentIdleRows([])
       setMonthlyRows([])
       setCheckInCount(0)
       setError(e?.response?.data?.message || e?.message || 'Failed to load dashboard')

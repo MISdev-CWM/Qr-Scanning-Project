@@ -62,11 +62,27 @@ const formatReportDateTime = (value) => {
   return dateValue.toLocaleString()
 }
 
+const getDurationMinutes = (session, now) => {
+  if (session?.endTime && typeof session.durationMinutes === 'number') {
+    return session.durationMinutes
+  }
+
+  const start = new Date(session?.startTime)
+  if (Number.isNaN(start.getTime())) return null
+
+  const end = session?.endTime ? new Date(session.endTime) : now
+  if (Number.isNaN(end.getTime())) return null
+
+  const minutes = Math.round((end.getTime() - start.getTime()) / 60000)
+  return minutes > 0 ? minutes : 0
+}
+
 export const WorkSessionsPage = () => {
   const navigate = useNavigate()
   const { showToast } = useToast()
   const [sessions, setSessions] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [currentTime, setCurrentTime] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState('')
   const [processes, setProcesses] = useState([])
   const [selectedProcess, setSelectedProcess] = useState('')
@@ -79,15 +95,16 @@ export const WorkSessionsPage = () => {
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
 
-  const fetchSessions = async (date) => {
-    setIsLoading(true)
+  const fetchSessions = async (date, { showLoader = true } = {}) => {
+    if (showLoader) setIsLoading(true)
     try {
       const data = date ? await getWorkSessions({ date }) : await getWorkSessions()
       setSessions(data)
+      setCurrentTime(new Date())
     } catch (error) {
       console.error('Failed to fetch work sessions', error)
     } finally {
-      setIsLoading(false)
+      if (showLoader) setIsLoading(false)
     }
   }
 
@@ -103,11 +120,19 @@ export const WorkSessionsPage = () => {
 
   useEffect(() => {
     fetchProcesses()
-    fetchSessions(selectedDate)
   }, [])
 
   useEffect(() => {
     fetchSessions(selectedDate)
+
+    const refreshInterval = window.setInterval(() => {
+      setCurrentTime(new Date())
+      fetchSessions(selectedDate, { showLoader: false })
+    }, 60000)
+
+    return () => {
+      window.clearInterval(refreshInterval)
+    }
   }, [selectedDate])
 
   const normalizedSelectedProcess = String(selectedProcess || '').trim().toLowerCase()
@@ -284,7 +309,10 @@ export const WorkSessionsPage = () => {
     },
     {
       header: 'Duration (min)',
-      accessor: (item) => (typeof item.durationMinutes === 'number' ? item.durationMinutes : '—'),
+      accessor: (item) => {
+        const duration = getDurationMinutes(item, currentTime)
+        return duration === null ? '—' : duration
+      },
     },
     {
       header: 'Actions',
