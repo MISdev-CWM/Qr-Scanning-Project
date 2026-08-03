@@ -50,6 +50,17 @@ const formatOtDuration = (decimalHours) => {
   return `${hours} hrs ${minutes} mins`
 }
 
+const formatReportHoursMinutes = (decimalHours) => {
+  const hoursValue = Number(decimalHours)
+  if (!Number.isFinite(hoursValue) || hoursValue <= 0) return '0.00'
+
+  const totalMinutes = Math.round(hoursValue * 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  return `${hours}.${String(minutes).padStart(2, '0')}`
+}
+
 export const OTHoursPage = () => {
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -141,9 +152,9 @@ export const OTHoursPage = () => {
           item.employee?.employeeType || 'permanent',
           formatReportDateTime(item.firstIn?.scanTime),
           formatReportDateTime(item.lastOut?.scanTime),
-          item.totalHours ?? '0.00',
-          item.otHours ?? '0.00',
-          item.afterOtEndHours ?? '0.00',
+          formatReportHoursMinutes(item.totalHours),
+          formatReportHoursMinutes(item.otHours),
+          formatReportHoursMinutes(item.afterOtEndHours),
         ]),
         fileName: `ot-hours-report-${startDate}-to-${endDate}.xlsx`,
         sheetName: 'OT Hours',

@@ -256,24 +256,16 @@ export const scanAtSecurity = async (req, res) => {
     const now = new Date();
     let workDate = now.toISOString().slice(0, 10); // YYYY-MM-DD
 
-    // Accept scanType from request, default to alternating if not provided
-    let type = scanType;
-    if (!type) {
-      // Find the last scan for this employee, regardless of date, to determine the NEXT scan type.
-      // Include employeeId here because manpower/company QR codes can be shared by many employees.
-      const lastLog = await AttendanceLog.findOne({
-        qrId: qr._id,
-        companyId,
-        employeeId,
-        scanLocation: context
-      }).sort({ scanTime: -1 });
-      
-      if (!lastLog) {
-        type = 'IN';
-      } else {
-        type = lastLog.scanType === 'IN' ? 'OUT' : 'IN';
-      }
-    }
+    const openInLogForCheckout = await findOpenCheckInForCheckout({
+      employeeId,
+      companyId,
+      scanLocation: context,
+      outTime: now,
+    });
+
+    // Accept scanType from request, default to OUT only when there is a valid
+    // open check-in inside the 36-hour shift window. Otherwise, start a new IN.
+    let type = scanType || (openInLogForCheckout ? 'OUT' : 'IN');
 
     // If checking OUT, inherit the workDate from the latest open IN scan.
     // Overnight shifts must stay under the original check-in workDate, even if checkout
@@ -291,16 +283,20 @@ export const scanAtSecurity = async (req, res) => {
         return res.status(400).json({ message: 'Working Session is not ended' });
       }
 
-      const openInLog = await findOpenCheckInForCheckout({
+      const openInLog = openInLogForCheckout || await findOpenCheckInForCheckout({
         employeeId,
         companyId,
         scanLocation: context,
         outTime: now,
       });
 
-      if (openInLog) {
-        workDate = openInLog.workDate;
+      if (!openInLog) {
+        return res.status(400).json({
+          message: 'No valid check-in found within 36 hours. Please check in first.',
+        });
       }
+
+      workDate = openInLog.workDate;
     }
 
     const attendance = new AttendanceLog({
