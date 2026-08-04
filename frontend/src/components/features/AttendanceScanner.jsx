@@ -90,7 +90,7 @@ export const AttendanceScanner = ({ onScanSuccess }) => {
       setEmployeeId('')
 
       didSucceed = true
-      playScanBeep()
+      playScanBeep(action)
       startCooldown()
 
       if (onScanSuccess) {
