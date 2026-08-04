@@ -5,6 +5,7 @@ const BREAK_TYPES = [
   { value: "LUNCH", label: "Lunch" },
   { value: "TEA", label: "Tea" },
   { value: "CLOTHES", label: "Clothes" },
+  { value: "MORNING MEETING", label: "Morning Meeting" },
 ];
 
 export const BreakForm = ({ initialData, onSuccess, onCancel }) => {
