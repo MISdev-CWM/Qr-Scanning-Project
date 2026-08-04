@@ -70,7 +70,7 @@ export const WorkSessionScanner = ({ onScanSuccess }) => {
       setValue("");
 
       didSucceed = true;
-      playScanBeep();
+      playScanBeep(result.scanType);
       startCooldown();
 
       if (onScanSuccess) {
