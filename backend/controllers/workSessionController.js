@@ -3,6 +3,7 @@ import QRCode from '../models/QRCode.js';
 import Employee from '../models/Employee.js';
 import Company from '../models/Company.js';
 import AttendanceLog from '../models/AttendanceLog.js';
+import Process from '../models/Process.js';
 
 const DUPLICATE_SCAN_WINDOW_MS = 5 * 60 * 1000;
 
@@ -279,6 +280,56 @@ export const updateWorkSessionTimes = async (req, res) => {
   } catch (err) {
     return res.status(500).json({
       message: 'Error updating work session times',
+      error: err.message,
+    });
+  }
+};
+
+// GET /api/work-session/active-by-process
+// Returns currently active (no endTime) work sessions grouped by processName.
+// If logged in user is a process user, filters only by their linked processName.
+export const getActiveSessionsByProcess = async (req, res) => {
+  try {
+    const filter = {
+      $or: [
+        { endTime: { $exists: false } },
+        { endTime: null },
+      ],
+    };
+
+    if (req.user && req.user.role === 'process') {
+      const linkedProcess = await Process.findOne({ userId: req.user._id });
+      if (linkedProcess && linkedProcess.processName) {
+        filter.processName = linkedProcess.processName;
+      }
+    }
+
+    const activeSessions = await WorkSession.find(filter)
+      .sort({ startTime: -1 })
+      .populate('employeeId', 'name employeeId')
+      .populate('companyId', 'companyName')
+      .lean();
+
+    // Group by processName
+    const grouped = {};
+    for (const session of activeSessions) {
+      const key = session.processName || 'Unknown';
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push({
+        sessionId: session._id,
+        employeeName: session.employeeId?.name || '—',
+        employeeCode: session.employeeId?.employeeId || '—',
+        companyName: session.companyId?.companyName || '—',
+        startTime: session.startTime,
+      });
+    }
+
+    return res.status(200).json({ grouped });
+  } catch (err) {
+    return res.status(500).json({
+      message: 'Error fetching active sessions by process',
       error: err.message,
     });
   }
