@@ -36,3 +36,9 @@ export const updateWorkSessionTimes = async (sessionId, { startTime, endTime }) 
   const response = await api.put(`/api/work-session/sessions/${sessionId}/times`, payload)
   return response.data?.session || response.data
 }
+
+// Admin-only: get active (checked-in) work sessions grouped by processName
+export const getActiveSessionsByProcess = async () => {
+  const response = await api.get('/api/work-session/active-by-process')
+  return response.data?.grouped || {}
+}
