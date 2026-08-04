@@ -11,6 +11,7 @@ import { ReportModal } from '../../components/features/ReportModal'
 import { useToast } from '../../hooks/useToast'
 import { getWorkSessions, updateWorkSessionTimes } from '../../services/workSession.service'
 import { getProcesses } from '../../services/process.service'
+import { getCompanies } from '../../services/company.service'
 
 const toDateTimeLocalValue = (value) => {
   if (!value) return ''
@@ -62,14 +63,37 @@ const formatReportDateTime = (value) => {
   return dateValue.toLocaleString()
 }
 
+const getDurationMinutes = (session, now) => {
+  if (session?.endTime && typeof session.durationMinutes === 'number') {
+    return session.durationMinutes
+  }
+
+  const start = new Date(session?.startTime)
+  if (Number.isNaN(start.getTime())) return null
+
+  const end = session?.endTime ? new Date(session.endTime) : now
+  if (Number.isNaN(end.getTime())) return null
+
+  const minutes = Math.round((end.getTime() - start.getTime()) / 60000)
+  return minutes > 0 ? minutes : 0
+}
+
+const getEmployeeCountKey = (session) => {
+  const employee = session?.employeeId
+  return String(employee?._id || employee?.employeeId || employee || session?._id || '').trim()
+}
+
 export const WorkSessionsPage = () => {
   const navigate = useNavigate()
   const { showToast } = useToast()
   const [sessions, setSessions] = useState([])
   const [isLoading, setIsLoading] = useState(true)
-  const [selectedDate, setSelectedDate] = useState('')
+  const [currentTime, setCurrentTime] = useState(new Date())
+  const [selectedDate, setSelectedDate] = useState(() => todayYyyyMmDd())
   const [processes, setProcesses] = useState([])
+  const [companies, setCompanies] = useState([])
   const [selectedProcess, setSelectedProcess] = useState('')
+  const [selectedCompany, setSelectedCompany] = useState('')
 
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -79,15 +103,16 @@ export const WorkSessionsPage = () => {
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
 
-  const fetchSessions = async (date) => {
-    setIsLoading(true)
+  const fetchSessions = async (date, { showLoader = true } = {}) => {
+    if (showLoader) setIsLoading(true)
     try {
       const data = date ? await getWorkSessions({ date }) : await getWorkSessions()
       setSessions(data)
+      setCurrentTime(new Date())
     } catch (error) {
       console.error('Failed to fetch work sessions', error)
     } finally {
-      setIsLoading(false)
+      if (showLoader) setIsLoading(false)
     }
   }
 
@@ -101,24 +126,61 @@ export const WorkSessionsPage = () => {
     }
   }
 
+  const fetchCompanies = async () => {
+    try {
+      const data = await getCompanies()
+      setCompanies(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Failed to fetch companies', error)
+      showToast('Failed to load companies', 'error')
+    }
+  }
+
   useEffect(() => {
     fetchProcesses()
-    fetchSessions(selectedDate)
+    fetchCompanies()
   }, [])
 
   useEffect(() => {
     fetchSessions(selectedDate)
+
+    const refreshInterval = window.setInterval(() => {
+      setCurrentTime(new Date())
+      fetchSessions(selectedDate, { showLoader: false })
+    }, 60000)
+
+    return () => {
+      window.clearInterval(refreshInterval)
+    }
   }, [selectedDate])
 
   const normalizedSelectedProcess = String(selectedProcess || '').trim().toLowerCase()
-  const filteredSessions = normalizedSelectedProcess
-    ? sessions.filter((s) => String(s?.processName || '').trim().toLowerCase() === normalizedSelectedProcess)
-    : sessions
+  const normalizedSelectedCompany = String(selectedCompany || '').trim()
+  const selectedCompanyName = companies.find((company) =>
+    String(company?._id || company?.id || '') === normalizedSelectedCompany
+  )?.companyName
+  const filteredSessions = sessions.filter((session) => {
+    const matchesProcess = normalizedSelectedProcess
+      ? String(session?.processName || '').trim().toLowerCase() === normalizedSelectedProcess
+      : true
+    const sessionCompanyId = String(session?.companyId?._id || session?.companyId || '').trim()
+    const matchesCompany = normalizedSelectedCompany
+      ? sessionCompanyId === normalizedSelectedCompany
+      : true
+
+    return matchesProcess && matchesCompany
+  })
+  const filteredEmployeeCount = new Set(
+    filteredSessions
+      .map(getEmployeeCountKey)
+      .filter(Boolean)
+  ).size
 
   const emptyMessage = (() => {
     const datePart = selectedDate ? ` for ${selectedDate}` : ''
-    const processPart = selectedProcess ? ` (${selectedProcess})` : ''
-    return `No work sessions found${datePart}${processPart}`
+    const filters = [selectedProcess, selectedCompanyName].filter(Boolean).join(', ')
+    const filterPart = filters ? ` (${filters})` : ''
+    return `No work sessions found${datePart}${filterPart}`
   })()
 
   const openReportModal = () => {
@@ -196,13 +258,20 @@ export const WorkSessionsPage = () => {
       const reportDates = getDateRange(startDate, endDate)
       const responses = await Promise.all(reportDates.map((reportDate) => getWorkSessions({ date: reportDate })))
       const normalizedReportProcess = String(selectedProcess || '').trim().toLowerCase()
+      const normalizedReportCompany = String(selectedCompany || '').trim()
       const rows = responses
         .flat()
-        .filter((session) =>
-          normalizedReportProcess
+        .filter((session) => {
+          const matchesProcess = normalizedReportProcess
             ? String(session?.processName || '').trim().toLowerCase() === normalizedReportProcess
             : true
-        )
+          const sessionCompanyId = String(session?.companyId?._id || session?.companyId || '').trim()
+          const matchesCompany = normalizedReportCompany
+            ? sessionCompanyId === normalizedReportCompany
+            : true
+
+          return matchesProcess && matchesCompany
+        })
 
       if (rows.length === 0) {
         showToast('No work sessions found for this date range', 'warning')
@@ -284,7 +353,10 @@ export const WorkSessionsPage = () => {
     },
     {
       header: 'Duration (min)',
-      accessor: (item) => (typeof item.durationMinutes === 'number' ? item.durationMinutes : '—'),
+      accessor: (item) => {
+        const duration = getDurationMinutes(item, currentTime)
+        return duration === null ? '—' : duration
+      },
     },
     {
       header: 'Actions',
@@ -330,8 +402,8 @@ export const WorkSessionsPage = () => {
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-        <div className="flex flex-col md:flex-row md:items-end gap-3">
-          <div className="w-full md:max-w-xs">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(180px,240px)_minmax(200px,280px)_minmax(240px,1fr)_auto_auto] lg:items-end gap-3">
+          <div className="w-full">
             <Input
               label="Filter by date"
               type="date"
@@ -340,7 +412,7 @@ export const WorkSessionsPage = () => {
             />
           </div>
 
-          <div className="w-full md:max-w-xs">
+          <div className="w-full">
             <Select
               label="Filter by process"
               value={selectedProcess}
@@ -355,6 +427,21 @@ export const WorkSessionsPage = () => {
             />
           </div>
 
+          <div className="w-full">
+            <Select
+              label="Filter by company"
+              value={selectedCompany}
+              onChange={(e) => setSelectedCompany(e.target.value)}
+              placeholder="All companies"
+              options={(Array.isArray(companies) ? companies : [])
+                .filter((company) => company?.companyName || company?.name)
+                .map((company) => ({
+                  value: company._id || company.id,
+                  label: company.companyName || company.name,
+                }))}
+            />
+          </div>
+
           <div className="flex gap-2">
             <Button
               variant="secondary"
@@ -364,6 +451,15 @@ export const WorkSessionsPage = () => {
             >
               Clear
             </Button>
+          </div>
+
+          <div className="w-full lg:w-36 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Employee Count
+            </p>
+            <p className="text-2xl font-bold text-slate-900">
+              {filteredEmployeeCount}
+            </p>
           </div>
         </div>
       </div>
