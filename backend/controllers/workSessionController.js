@@ -4,6 +4,8 @@ import Employee from '../models/Employee.js';
 import Company from '../models/Company.js';
 import AttendanceLog from '../models/AttendanceLog.js';
 
+const DUPLICATE_SCAN_WINDOW_MS = 5 * 60 * 1000;
+
 const isMongoObjectId = (value) => typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value);
 
 const resolveQRCode = async (qrId) => {
@@ -87,6 +89,26 @@ export const startSession = async (req, res) => {
       });
     }
 
+    const now = new Date();
+    const recentEndedSession = await WorkSession.findOne({
+      qrId: qrObjectId,
+      processName,
+      endTime: {
+        $gte: new Date(now.getTime() - DUPLICATE_SCAN_WINDOW_MS),
+        $lte: now,
+      },
+    }).sort({ endTime: -1 });
+
+    if (recentEndedSession) {
+      return res.status(200).json({
+        message: 'Duplicate work session scan ignored. Session was already ended.',
+        session: recentEndedSession,
+        duplicate: true,
+        scanType: 'OUT',
+        scanTime: recentEndedSession.endTime,
+      });
+    }
+
     // Block if employee is already assigned to another open process
     if (employeeId) {
       const parallelSession = await WorkSession.findOne({
@@ -128,7 +150,7 @@ export const startSession = async (req, res) => {
       employeeId,
       // machineId,
       processName,
-      startTime: new Date()
+      startTime: now
     });
     await session.save();
     res.status(201).json({
@@ -168,6 +190,18 @@ export const stopSession = async (req, res) => {
       });
     }
     const now = new Date();
+    const startTime = new Date(session.startTime);
+
+    if (!Number.isNaN(startTime.getTime()) && now.getTime() - startTime.getTime() <= DUPLICATE_SCAN_WINDOW_MS) {
+      return res.status(200).json({
+        message: 'Duplicate work session scan ignored. Session was already started.',
+        session,
+        duplicate: true,
+        scanType: 'IN',
+        scanTime: session.startTime,
+      });
+    }
+
     session.endTime = now;
     session.durationMinutes = Math.round(
       (now - session.startTime) / 60000

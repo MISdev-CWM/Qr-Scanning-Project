@@ -6,6 +6,7 @@ import WorkSession from '../models/WorkSession.js';
 
 const MAX_OPEN_SHIFT_HOURS = 36;
 const MAX_OPEN_SHIFT_MS = MAX_OPEN_SHIFT_HOURS * 60 * 60 * 1000;
+const DUPLICATE_SCAN_WINDOW_MS = 5 * 60 * 1000;
 
 const toWorkDate = (date) => {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
@@ -67,6 +68,28 @@ const findOpenCheckInForCheckout = async ({ employeeId, companyId, scanLocation,
   const alreadyCheckedOut = await AttendanceLog.exists(alreadyCheckedOutQuery);
 
   return alreadyCheckedOut ? null : lastInLog;
+};
+
+const findRecentAttendanceScan = ({ employeeId, companyId, scanLocation, now }) => {
+  const windowStart = new Date(now.getTime() - DUPLICATE_SCAN_WINDOW_MS);
+
+  return AttendanceLog.findOne({
+    employeeId,
+    companyId,
+    scanLocation,
+    scanTime: {
+      $gte: windowStart,
+      $lte: now,
+    },
+  }).sort({ scanTime: -1 });
+};
+
+const sendDuplicateAttendanceScan = (res, attendance, context) => {
+  return res.status(200).json({
+    message: `Duplicate attendance scan ignored. Attendance ${attendance.scanType} was already recorded at ${context}.`,
+    attendance,
+    duplicate: true,
+  });
 };
 
 const findCheckoutForOpenCheckIn = async (firstIn) => {
@@ -256,6 +279,17 @@ export const scanAtSecurity = async (req, res) => {
     const now = new Date();
     let workDate = now.toISOString().slice(0, 10); // YYYY-MM-DD
 
+    const recentAttendanceScan = await findRecentAttendanceScan({
+      employeeId,
+      companyId,
+      scanLocation: context,
+      now,
+    });
+
+    if (recentAttendanceScan) {
+      return sendDuplicateAttendanceScan(res, recentAttendanceScan, context);
+    }
+
     const openInLogForCheckout = await findOpenCheckInForCheckout({
       employeeId,
       companyId,
@@ -297,6 +331,17 @@ export const scanAtSecurity = async (req, res) => {
       }
 
       workDate = openInLog.workDate;
+    }
+
+    const latestRecentAttendanceScan = await findRecentAttendanceScan({
+      employeeId,
+      companyId,
+      scanLocation: context,
+      now: new Date(),
+    });
+
+    if (latestRecentAttendanceScan) {
+      return sendDuplicateAttendanceScan(res, latestRecentAttendanceScan, context);
     }
 
     const attendance = new AttendanceLog({

@@ -76,10 +76,11 @@ export const handleScan = async (req, res) => {
       });
 
       if (stopResult.code === 200) {
+        const stopScanType = stopResult.obj?.scanType || 'OUT';
         return res.status(200).json({
           ...stopResult.obj,
-          scanType: 'OUT',
-          scanTime: stopResult.obj?.session?.endTime || new Date(),
+          scanType: stopScanType,
+          scanTime: stopResult.obj?.scanTime || stopResult.obj?.session?.endTime || stopResult.obj?.session?.startTime || new Date(),
           processName
         });
       }
@@ -98,11 +99,12 @@ export const handleScan = async (req, res) => {
         startSession({ body: payload }, fakeRes);
       });
 
-      if (startResult.code === 201) {
-        return res.status(201).json({
+      if (startResult.code === 201 || startResult.obj?.duplicate) {
+        const startScanType = startResult.obj?.scanType || 'IN';
+        return res.status(startResult.code).json({
           ...startResult.obj,
-          scanType: 'IN',
-          scanTime: startResult.obj?.session?.startTime || new Date(),
+          scanType: startScanType,
+          scanTime: startResult.obj?.scanTime || startResult.obj?.session?.startTime || startResult.obj?.session?.endTime || new Date(),
           processName
         });
       }
@@ -124,10 +126,31 @@ export const handleScan = async (req, res) => {
       });
 
       if (stopResult.code === 200) {
-        return res.status(200).json(stopResult.obj);
+        return res.status(200).json({
+          ...stopResult.obj,
+          scanType: stopResult.obj?.scanType || 'OUT',
+          scanTime: stopResult.obj?.scanTime || stopResult.obj?.session?.endTime || stopResult.obj?.session?.startTime || new Date(),
+        });
       }
 
-      return startSession(req, res);
+      const startResult = await new Promise(resolve => {
+        const fakeRes = {
+          status: code => ({
+            json: obj => resolve({ code, obj })
+          })
+        };
+        startSession(req, fakeRes);
+      });
+
+      if (startResult.code === 201 || startResult.obj?.duplicate) {
+        return res.status(startResult.code).json({
+          ...startResult.obj,
+          scanType: startResult.obj?.scanType || 'IN',
+          scanTime: startResult.obj?.scanTime || startResult.obj?.session?.startTime || startResult.obj?.session?.endTime || new Date(),
+        });
+      }
+
+      return res.status(startResult.code).json(startResult.obj);
     }
     
   } catch (err) {
