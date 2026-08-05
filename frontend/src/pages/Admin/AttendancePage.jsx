@@ -74,6 +74,21 @@ const AttendanceDateTimeCell = ({ value }) => {
   )
 }
 
+const CheckoutDateTimeCell = ({ value, isAutoCheckout }) => {
+  if (!value) return '-'
+
+  return (
+    <div>
+      <AttendanceDateTimeCell value={value} />
+      {isAutoCheckout ? (
+        <div className="mt-1 text-xs font-medium text-blue-600">
+          Auto checkout
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export const AttendancePage = () => {
   const { showToast } = useToast()
   const navigate = useNavigate()
@@ -99,7 +114,7 @@ export const AttendancePage = () => {
   const fetchSummary = async () => {
     setIsLoading(true)
     try {
-      const data = await getDailySummary(date)
+      const data = await getDailySummary(date, { autoCheckout: true })
       console.log('Daily summary data:', data)
       
       // Handle empty or invalid response
@@ -127,6 +142,7 @@ export const AttendancePage = () => {
           checkOut: item.lastOut?.scanTime,
           checkInLogId: item.firstIn?._id,
           checkOutLogId: item.lastOut?._id,
+          isAutoCheckout: item.lastOut?.shift === 'AUTO_CHECKOUT',
           workDate: workDateFromLog,
           status: item.firstIn && item.lastOut ? 'Present' : item.firstIn ? 'Partial' : 'Absent',
           company: item.company?.companyName || 'N/A'
@@ -159,6 +175,11 @@ export const AttendancePage = () => {
     }
   }
 
+  const refreshAttendance = async () => {
+    await fetchSummary()
+    await fetchNonCheckoutCount()
+  }
+
   const openReportModal = () => {
     setIsReportOpen(true)
   }
@@ -182,7 +203,7 @@ export const AttendancePage = () => {
     setIsReportGenerating(true)
     try {
       const reportDates = getDateRange(startDate, endDate)
-      const responses = await Promise.all(reportDates.map((reportDate) => getDailySummary(reportDate)))
+      const responses = await Promise.all(reportDates.map((reportDate) => getDailySummary(reportDate, { autoCheckout: true })))
       const rows = responses.flatMap((data, index) => {
         if (!Array.isArray(data)) return []
 
@@ -239,8 +260,7 @@ export const AttendancePage = () => {
   }
 
   useEffect(() => {
-    fetchSummary()
-    fetchNonCheckoutCount()
+    refreshAttendance()
   }, [date])
 
   const openEdit = (row) => {
@@ -353,7 +373,7 @@ export const AttendancePage = () => {
 
       showToast('Attendance date and time updated', 'success')
       closeEdit()
-      await fetchSummary()
+      await refreshAttendance()
     } catch (error) {
       console.error('Failed to update attendance times', error)
       const msg = error?.response?.data?.message || error?.message || 'Failed to update attendance times'
@@ -378,7 +398,12 @@ export const AttendancePage = () => {
     },
     {
       header: 'Check Out',
-      accessor: (item) => <AttendanceDateTimeCell value={item.checkOut} />,
+      accessor: (item) => (
+        <CheckoutDateTimeCell
+          value={item.checkOut}
+          isAutoCheckout={item.isAutoCheckout}
+        />
+      ),
     },
     {
       header: 'Status',
@@ -420,7 +445,7 @@ export const AttendancePage = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
         {/* <div className="lg:col-span-1">
-          <AttendanceScanner onScanSuccess={fetchSummary} />
+          <AttendanceScanner onScanSuccess={refreshAttendance} />
         </div> */}
 
         <div className="lg:col-span-10">

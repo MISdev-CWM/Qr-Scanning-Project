@@ -4,9 +4,13 @@ import Employee from '../models/Employee.js';
 import Company from '../models/Company.js';
 import WorkSession from '../models/WorkSession.js';
 
-const MAX_OPEN_SHIFT_HOURS = 36;
-const MAX_OPEN_SHIFT_MS = MAX_OPEN_SHIFT_HOURS * 60 * 60 * 1000;
 const DUPLICATE_SCAN_WINDOW_MS = 5 * 60 * 1000;
+const AUTO_CHECKOUT_SHIFT = 'AUTO_CHECKOUT';
+const AUTO_CHECKOUT_HOURS_BY_TYPE = {
+  manpower: 13,
+  permanent: 25,
+  casual: 25,
+};
 
 const toWorkDate = (date) => {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
@@ -20,22 +24,17 @@ const getEmployeeKey = (log) =>
 
 const isAfter = (later, earlier) => new Date(later).getTime() > new Date(earlier).getTime();
 
-const isWithinOpenShiftWindow = (inTime, outTime) => {
-  const start = new Date(inTime);
-  const end = new Date(outTime);
-
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
-    return false;
-  }
-
-  return end.getTime() - start.getTime() <= MAX_OPEN_SHIFT_MS;
+const getAutoCheckoutHours = (employeeType) => {
+  const normalizedType = String(employeeType || '').trim().toLowerCase();
+  return AUTO_CHECKOUT_HOURS_BY_TYPE[normalizedType] || AUTO_CHECKOUT_HOURS_BY_TYPE.permanent;
 };
+
+const shouldApplyAutoCheckout = (req) =>
+  String(req.query?.autoCheckout || '').trim().toLowerCase() === 'true';
 
 const findOpenCheckInForCheckout = async ({ employeeId, companyId, scanLocation, outTime, excludeOutId = null }) => {
   const parsedOutTime = new Date(outTime);
   if (Number.isNaN(parsedOutTime.getTime())) return null;
-
-  const earliestAllowedIn = new Date(parsedOutTime.getTime() - MAX_OPEN_SHIFT_MS);
 
   const lastInLog = await AttendanceLog.findOne({
     employeeId,
@@ -43,7 +42,6 @@ const findOpenCheckInForCheckout = async ({ employeeId, companyId, scanLocation,
     scanLocation,
     scanType: 'IN',
     scanTime: {
-      $gte: earliestAllowedIn,
       $lt: parsedOutTime,
     },
   }).sort({ scanTime: -1 });
@@ -77,6 +75,7 @@ const findRecentAttendanceScan = ({ employeeId, companyId, scanLocation, now }) 
     employeeId,
     companyId,
     scanLocation,
+    shift: { $ne: AUTO_CHECKOUT_SHIFT },
     scanTime: {
       $gte: windowStart,
       $lte: now,
@@ -98,7 +97,6 @@ const findCheckoutForOpenCheckIn = async (firstIn) => {
   const inTime = new Date(firstIn.scanTime);
   if (Number.isNaN(inTime.getTime())) return null;
 
-  const maxOutTime = new Date(inTime.getTime() + MAX_OPEN_SHIFT_MS);
   const employeeId = getIdValue(firstIn.employeeId);
   const companyId = getIdValue(firstIn.companyId);
 
@@ -111,11 +109,143 @@ const findCheckoutForOpenCheckIn = async (firstIn) => {
     scanType: 'OUT',
     scanTime: {
       $gt: inTime,
-      $lte: maxOutTime,
     },
   })
     .sort({ scanTime: 1 })
     .populate('employeeId companyId');
+};
+
+const hasCheckoutAfterCheckIn = ({ employeeId, companyId, scanLocation, checkInTime, now }) => {
+  return AttendanceLog.exists({
+    employeeId,
+    companyId,
+    scanLocation,
+    scanType: 'OUT',
+    scanTime: {
+      $gt: checkInTime,
+      $lte: now,
+    },
+  });
+};
+
+const hasWorkSessionAfterAutoCheckoutTime = ({ employeeId, checkInTime, autoCheckoutTime, now }) => {
+  return WorkSession.exists({
+    employeeId,
+    startTime: {
+      $gte: checkInTime,
+      $lte: now,
+    },
+    $or: [
+      { endTime: { $exists: false } },
+      { endTime: null },
+      { endTime: { $gte: autoCheckoutTime } },
+    ],
+  });
+};
+
+const applyAutoCheckoutForOpenCheckIn = async (inLog, now = new Date()) => {
+  const employee = inLog.employeeId;
+  const employeeId = getIdValue(employee);
+  const companyId = getIdValue(inLog.companyId);
+  const qrId = getIdValue(inLog.qrId);
+
+  if (!employeeId || !companyId || !qrId || !inLog.scanTime) return false;
+
+  const checkInTime = new Date(inLog.scanTime);
+  if (Number.isNaN(checkInTime.getTime())) return false;
+
+  const autoCheckoutHours = getAutoCheckoutHours(employee?.employeeType);
+  const autoCheckoutTime = new Date(checkInTime.getTime() + autoCheckoutHours * 60 * 60 * 1000);
+
+  if (now < autoCheckoutTime) return false;
+
+  const alreadyCheckedOut = await hasCheckoutAfterCheckIn({
+    employeeId,
+    companyId,
+    scanLocation: inLog.scanLocation,
+    checkInTime,
+    now,
+  });
+
+  if (alreadyCheckedOut) return false;
+
+  const blockingWorkSession = await hasWorkSessionAfterAutoCheckoutTime({
+    employeeId,
+    checkInTime,
+    autoCheckoutTime,
+    now,
+  });
+
+  if (blockingWorkSession) return false;
+
+  const latestCheckout = await hasCheckoutAfterCheckIn({
+    employeeId,
+    companyId,
+    scanLocation: inLog.scanLocation,
+    checkInTime,
+    now: new Date(),
+  });
+
+  if (latestCheckout) return false;
+
+  const attendance = new AttendanceLog({
+    qrId,
+    companyId,
+    employeeId,
+    scanType: 'OUT',
+    scanLocation: inLog.scanLocation,
+    scanTime: autoCheckoutTime,
+    workDate: inLog.workDate,
+    shift: AUTO_CHECKOUT_SHIFT,
+    editedAt: new Date(),
+  });
+
+  await attendance.save();
+  return true;
+};
+
+const applyAutoCheckoutsForDate = async (date, now = new Date()) => {
+  const inLogs = await AttendanceLog.find({
+    workDate: date,
+    scanLocation: 'SECURITY',
+    scanType: 'IN',
+  })
+    .sort({ scanTime: 1 })
+    .populate('employeeId companyId');
+
+  let createdCount = 0;
+
+  for (const inLog of inLogs) {
+    if (await applyAutoCheckoutForOpenCheckIn(inLog, now)) {
+      createdCount += 1;
+    }
+  }
+
+  return createdCount;
+};
+
+const applyAutoCheckoutsBeforeEmployeeScan = async ({ employeeId, companyId, scanLocation, now = new Date() }) => {
+  const inLogs = await AttendanceLog.find({
+    employeeId,
+    companyId,
+    scanLocation,
+    scanType: 'IN',
+    scanTime: {
+      $lt: now,
+    },
+  })
+    .sort({ scanTime: 1 })
+    .populate('employeeId companyId');
+
+  let createdCount = 0;
+
+  for (const inLog of inLogs) {
+    if (await applyAutoCheckoutForOpenCheckIn(inLog, now)) {
+      createdCount += 1;
+    }
+  }
+
+  return createdCount;
 };
 
 const isCheckoutForPreviousOpenShift = async (outLog) => {
@@ -169,8 +299,7 @@ const buildAttendanceSummaryRows = async (date) => {
           .find(
             (log) =>
               log.scanType === 'OUT' &&
-              isAfter(log.scanTime, firstIn.scanTime) &&
-              isWithinOpenShiftWindow(firstIn.scanTime, log.scanTime)
+              isAfter(log.scanTime, firstIn.scanTime)
           );
 
         if (!lastOut) {
@@ -290,6 +419,13 @@ export const scanAtSecurity = async (req, res) => {
       return sendDuplicateAttendanceScan(res, recentAttendanceScan, context);
     }
 
+    await applyAutoCheckoutsBeforeEmployeeScan({
+      employeeId,
+      companyId,
+      scanLocation: context,
+      now,
+    });
+
     const openInLogForCheckout = await findOpenCheckInForCheckout({
       employeeId,
       companyId,
@@ -298,7 +434,7 @@ export const scanAtSecurity = async (req, res) => {
     });
 
     // Accept scanType from request, default to OUT only when there is a valid
-    // open check-in inside the 36-hour shift window. Otherwise, start a new IN.
+    // open check-in. Otherwise, start a new IN.
     let type = scanType || (openInLogForCheckout ? 'OUT' : 'IN');
 
     // If checking OUT, inherit the workDate from the latest open IN scan.
@@ -326,7 +462,7 @@ export const scanAtSecurity = async (req, res) => {
 
       if (!openInLog) {
         return res.status(400).json({
-          message: 'No valid check-in found within 36 hours. Please check in first.',
+          message: 'No open check-in found. Please check in first.',
         });
       }
 
@@ -546,8 +682,7 @@ export const getAttendanceSummary = async (req, res) => {
         .find(
           (log) =>
             log.scanType === 'OUT' &&
-            isAfter(log.scanTime, firstIn.scanTime) &&
-            isWithinOpenShiftWindow(firstIn.scanTime, log.scanTime)
+            isAfter(log.scanTime, firstIn.scanTime)
         );
 
       if (!lastOut) {
@@ -571,6 +706,9 @@ export const getDailySummary = async (req, res) => {
     if (!date) {
       return res.status(400).json({ message: 'date is required' });
     }
+    if (shouldApplyAutoCheckout(req)) {
+      await applyAutoCheckoutsForDate(date);
+    }
     const result = await buildAttendanceSummaryRows(date);
     res.status(200).json(result);
   } catch (err) {
@@ -587,6 +725,7 @@ export const getNonCheckoutEmployees = async (req, res) => {
       return res.status(400).json({ message: 'date is required in format YYYY-MM-DD' });
     }
 
+    await applyAutoCheckoutsForDate(day);
     const summaryRows = await buildAttendanceSummaryRows(day);
     const openRows = summaryRows.filter(({ firstIn, lastOut }) => firstIn && !lastOut);
 
