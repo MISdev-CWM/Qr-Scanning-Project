@@ -30,16 +30,7 @@ export const AttendanceScanPage = () => {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-slate-900 mb-2">
-            Attendance Scanner
-          </h2>
-          <p className="text-slate-600">
-            Scan employee QR codes or enter an Employee ID to record attendance
-          </p>
-        </div>
-
+      <div className="max-w-xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-8 [&>div]:p-4 [&>div]:sm:p-4 [&>div_h3]:mb-3 [&_.space-y-4]:space-y-3 [&_#qr-reader]:h-[clamp(220px,38vh,340px)] [&_#qr-reader]:min-h-0 [&_#qr-reader]:max-h-none [&_input]:block [&_input]:max-w-md [&_input]:mx-auto [&_input]:h-9 [&_input]:py-1 [&_input]:text-sm">
         <AttendanceScanner />
       </div>
     </div>

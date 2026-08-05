@@ -56,21 +56,13 @@ export const ProcessScanPage = () => {
 
   return (
     <DashboardLayout>
-      <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-slate-50 px-4 pb-4 pt-2 sm:px-6 sm:pb-6 sm:pt-3">
         <div className="max-w-4xl mx-auto space-y-6">
 
-          {/* Header */}
-          <div className="mb-2 sm:mb-4">
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
-              Process Scanner
-            </h1>
-            <p className="text-slate-600 mt-1">
-              Scan employee QR codes to start/stop work sessions
-            </p>
-          </div>
-
           {/* Scanner */}
-          <WorkSessionScanner onScanSuccess={handleScanSuccess} />
+          <div className="max-w-3xl mx-auto [&>div]:p-4 [&>div]:sm:p-4 [&>div_h3]:mb-3 [&_.space-y-4]:space-y-3 [&_#work-session-qr-reader]:h-[clamp(220px,38vh,340px)] [&_#work-session-qr-reader]:min-h-0 [&_#work-session-qr-reader]:max-h-none [&_input]:h-9 [&_input]:py-1 [&_input]:text-sm [&_input]:max-w-xl [&_button]:h-9 [&_button]:py-1.5 [&_button]:text-sm">
+            <WorkSessionScanner onScanSuccess={handleScanSuccess} />
+          </div>
 
           {/* Checked-In Count Panel */}
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
