@@ -134,9 +134,12 @@ export const scanAttendance = async (input, scanType, employeeIdOverride = null)
   return response.data.attendance || response.data;
 }
 
-export const getDailySummary = async (date) => {
+export const getDailySummary = async (date, options = {}) => {
   const response = await api.get('/api/attendance/daily-summary', {
-    params: { date },
+    params: {
+      date,
+      ...(options.autoCheckout ? { autoCheckout: true } : {}),
+    },
   })
   return response.data
 }
