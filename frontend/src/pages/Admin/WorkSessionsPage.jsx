@@ -396,7 +396,7 @@ export const WorkSessionsPage = () => {
               )
             }
           >
-            View Idle Employees
+            View In-Transition Employees
           </Button>
         </div>
       </div>

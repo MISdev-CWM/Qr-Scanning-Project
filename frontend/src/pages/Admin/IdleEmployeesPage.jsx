@@ -45,7 +45,7 @@ export const IdleEmployeesPage = () => {
       setRows(Array.isArray(data) ? data : [])
     } catch (error) {
       setRows([])
-      const msg = error?.response?.data?.message || error?.message || 'Failed to load idle employees'
+      const msg = error?.response?.data?.message || error?.message || 'Failed to load In-Transition employees'
       showToast(msg, 'error')
     } finally {
       setIsLoading(false)
@@ -74,11 +74,11 @@ export const IdleEmployeesPage = () => {
     },
     {
       header: 'Status',
-      accessor: () => <Badge variant="warning">IDLE</Badge>,
+      accessor: () => <Badge variant="warning">In-Transition</Badge>,
       className: 'whitespace-nowrap',
     },
     {
-      header: 'Idle Since',
+      header: 'In-Transition Since',
       accessor: (row) => formatTime(row.idleSince),
       className: 'text-right whitespace-nowrap',
     },
@@ -87,12 +87,12 @@ export const IdleEmployeesPage = () => {
       accessor: (row) => row.lastProcessName || '—',
     },
     {
-      header: 'Idle (min)',
+      header: 'In-Transition (min)',
       accessor: (row) => (Number.isFinite(Number(row.idleMinutes)) ? Math.round(Number(row.idleMinutes)) : 0),
       className: 'text-right whitespace-nowrap',
     },
     {
-      header: 'Idle (hrs)',
+      header: 'In-Transition (hrs)',
       accessor: (row) => formatHours(row.idleHours),
       className: 'text-right whitespace-nowrap',
     },
@@ -103,8 +103,8 @@ export const IdleEmployeesPage = () => {
       <div className="flex flex-col gap-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Idle Employees</h1>
-            <p className="text-slate-600">Idle time calculated from attendance + work sessions</p>
+            <h1 className="text-2xl font-bold text-slate-900">In-Transition Employees</h1>
+            <p className="text-slate-600">In-Transition time calculated from attendance + work sessions</p>
           </div>
 
           <div className="flex gap-2">
@@ -138,7 +138,7 @@ export const IdleEmployeesPage = () => {
           columns={columns}
           keyExtractor={(row) => row.employeeId}
           isLoading={isLoading}
-          emptyMessage={date ? `No idle employees found for ${date}` : 'No idle employees found'}
+          emptyMessage={date ? `No In-Transition employees found for ${date}` : 'No In-Transition employees found'}
         />
       </div>
     </DashboardLayout>
