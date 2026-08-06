@@ -1,14 +1,21 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Table } from '../../components/ui/Table'
 import { Input } from '../../components/ui/Input'
+import { Select } from '../../components/ui/Select'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { ReportModal } from '../../components/features/ReportModal'
 import { useToast } from '../../hooks/useToast'
-import { getDailySummary, getNonCheckoutEmployees, updateAttendanceLogScanTime, createManualAttendanceLog } from '../../services/attendance.service'
+import { getDailySummary, getNonCheckoutEmployees, updateAttendanceLogScanTime, createManualAttendanceLog, previewAttendanceRecordDelete, deleteAttendanceRecord } from '../../services/attendance.service'
+import { getCompanies } from '../../services/company.service'
+
+const toIdString = (value) => {
+  const id = value?._id || value?.id || value
+  return id ? String(id) : ''
+}
 
 const toTimeValue = (scanTime) => {
   if (!scanTime) return ''
@@ -58,6 +65,18 @@ const formatReportDateTime = (value) => {
   return dateValue.toLocaleString()
 }
 
+const getDeletePayload = (row) => ({
+  attendanceLogIds: [toIdString(row?.checkInLogId), toIdString(row?.checkOutLogId)].filter(Boolean),
+  employeeId: toIdString(row?.employeeObjectId),
+  workDate: row?.workDate,
+  checkInTime: row?.checkIn || null,
+  checkOutTime: row?.checkOut || null,
+  expectedScanTypes: {
+    in: Boolean(row?.checkIn),
+    out: Boolean(row?.checkOut),
+  },
+})
+
 const AttendanceDateTimeCell = ({ value }) => {
   if (!value) return '-'
 
@@ -98,6 +117,8 @@ export const AttendancePage = () => {
     initialDate
   )
   const [summary, setSummary] = useState([])
+  const [companies, setCompanies] = useState([])
+  const [selectedCompany, setSelectedCompany] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [nonCheckoutCount, setNonCheckoutCount] = useState(0)
   const [isNonCheckoutLoading, setIsNonCheckoutLoading] = useState(false)
@@ -110,6 +131,11 @@ export const AttendancePage = () => {
   const [editCheckOut, setEditCheckOut] = useState('')
   const [isReportOpen, setIsReportOpen] = useState(false)
   const [isReportGenerating, setIsReportGenerating] = useState(false)
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+  const [deleteRow, setDeleteRow] = useState(null)
+  const [deletePreview, setDeletePreview] = useState(null)
+  const [isDeletePreviewLoading, setIsDeletePreviewLoading] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const fetchSummary = async () => {
     setIsLoading(true)
@@ -136,12 +162,12 @@ export const AttendancePage = () => {
             `${item.employee?.name || 'employee'}-${date}`,
           employeeId: item.employee?.employeeId || 'N/A',
           employeeObjectId: item.employee?._id,
-          companyObjectId: item.company?._id || item.firstIn?.companyId || item.lastOut?.companyId,
+          companyObjectId: toIdString(item.company?._id || item.firstIn?.companyId || item.lastOut?.companyId),
           name: item.employee?.name || 'Unknown',
           checkIn: item.firstIn?.scanTime,
           checkOut: item.lastOut?.scanTime,
-          checkInLogId: item.firstIn?._id,
-          checkOutLogId: item.lastOut?._id,
+          checkInLogId: toIdString(item.firstIn?._id),
+          checkOutLogId: toIdString(item.lastOut?._id),
           isAutoCheckout: item.lastOut?.shift === 'AUTO_CHECKOUT',
           workDate: workDateFromLog,
           status: item.firstIn && item.lastOut ? 'Present' : item.firstIn ? 'Partial' : 'Absent',
@@ -179,6 +205,21 @@ export const AttendancePage = () => {
     await fetchSummary()
     await fetchNonCheckoutCount()
   }
+
+  const filteredSummary = useMemo(() => {
+    if (!selectedCompany) return summary
+    return summary.filter((item) => item.companyObjectId === selectedCompany)
+  }, [selectedCompany, summary])
+
+  const companyOptions = useMemo(() => (
+    (Array.isArray(companies) ? companies : [])
+      .filter((company) => company?.companyName || company?.name)
+      .map((company) => ({
+        value: toIdString(company._id || company.id),
+        label: company.companyName || company.name,
+      }))
+      .filter((option) => option.value)
+  ), [companies])
 
   const openReportModal = () => {
     setIsReportOpen(true)
@@ -260,6 +301,29 @@ export const AttendancePage = () => {
   }
 
   useEffect(() => {
+    let isMounted = true
+
+    const fetchCompanies = async () => {
+      try {
+        const data = await getCompanies()
+        if (isMounted) {
+          setCompanies(Array.isArray(data) ? data : [])
+        }
+      } catch (error) {
+        if (isMounted) {
+          setCompanies([])
+        }
+      }
+    }
+
+    fetchCompanies()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
     refreshAttendance()
   }, [date])
 
@@ -281,6 +345,59 @@ export const AttendancePage = () => {
     setEditCheckIn('')
     setEditCheckOutDate('')
     setEditCheckOut('')
+  }
+
+  const openDelete = async (row) => {
+    const payload = getDeletePayload(row)
+    if (payload.attendanceLogIds.length === 0 && !payload.checkInTime && !payload.checkOutTime) {
+      showToast('No attendance logs found for this row', 'warning')
+      return
+    }
+
+    setDeleteRow(row)
+    setDeletePreview(null)
+    setIsDeleteOpen(true)
+    setIsDeletePreviewLoading(true)
+
+    try {
+      const preview = await previewAttendanceRecordDelete(payload)
+      setDeletePreview(preview)
+    } catch (error) {
+      const msg = error?.response?.data?.message || error?.message || 'Failed to load delete preview'
+      showToast(msg, 'error')
+      setIsDeleteOpen(false)
+      setDeleteRow(null)
+    } finally {
+      setIsDeletePreviewLoading(false)
+    }
+  }
+
+  const closeDelete = () => {
+    if (isDeleting) return
+    setIsDeleteOpen(false)
+    setDeleteRow(null)
+    setDeletePreview(null)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteRow) return
+    setIsDeleting(true)
+    try {
+      const result = await deleteAttendanceRecord(getDeletePayload(deleteRow))
+      showToast(
+        `Deleted attendance record Successfully`,
+        'success'
+      )
+      setIsDeleteOpen(false)
+      setDeleteRow(null)
+      setDeletePreview(null)
+      await refreshAttendance()
+    } catch (error) {
+      const msg = error?.response?.data?.message || error?.message || 'Failed to delete attendance record'
+      showToast(msg, 'error')
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   const saveEdits = async () => {
@@ -393,6 +510,10 @@ export const AttendancePage = () => {
       accessor: 'name',
     },
     {
+      header: 'Company',
+      accessor: 'company',
+    },
+    {
       header: 'Check In',
       accessor: (item) => <AttendanceDateTimeCell value={item.checkIn} />,
     },
@@ -424,14 +545,24 @@ export const AttendancePage = () => {
     {
       header: 'Actions',
       accessor: (item) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => openEdit(item)}
-          disabled={!item.checkInLogId && !item.checkOutLogId}
-        >
-          Edit Times
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => openEdit(item)}
+            disabled={!item.checkInLogId && !item.checkOutLogId}
+          >
+            Edit Times
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => openDelete(item)}
+            disabled={!item.checkInLogId && !item.checkOutLogId}
+          >
+            Delete
+          </Button>
+        </div>
       ),
       className: 'whitespace-nowrap',
     },
@@ -448,45 +579,86 @@ export const AttendancePage = () => {
           <AttendanceScanner onScanSuccess={refreshAttendance} />
         </div> */}
 
-        <div className="lg:col-span-10">
+        <div className="lg:col-span-3">
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 h-full">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold text-slate-900">
-                Daily Summary
-              </h3>
+            <div className="mb-6 space-y-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Attendance Records
+                  </p>
+                  <h3 className="mt-1 text-xl font-semibold text-slate-900">
+                    Daily Summary
+                  </h3>
+                </div>
 
-              <div className="flex items-end gap-3">
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={openReportModal}
-                  disabled={isEditOpen}
-                  className="border-green-200! bg-green-100! text-green-800! hover:bg-green-200! focus:ring-green-500!"
-                >
-                  Generate Report
-                </Button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant="outline"
+                    type="button"
+                    onClick={openReportModal}
+                    disabled={isEditOpen}
+                    className="border-green-200! bg-green-100! text-green-800! hover:bg-green-200! focus:ring-green-500!"
+                  >
+                    Generate Report
+                  </Button>
 
-                <Button
-                  variant="secondary"
-                  type="button"
-                  onClick={() => navigate(`/attendance/non-checkout?date=${date}`)}
-                  disabled={isNonCheckoutLoading}
-                >
-                  Non Checkout: {isNonCheckoutLoading ? '…' : nonCheckoutCount}
-                </Button>
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    onClick={() => navigate(`/attendance/non-checkout?date=${date}`)}
+                    disabled={isNonCheckoutLoading}
+                  >
+                    Non Checkout: {isNonCheckoutLoading ? '...' : nonCheckoutCount}
+                  </Button>
+                </div>
+              </div>
 
-                <Input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-auto"
-                  disabled={isEditOpen}
-                />
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(180px,240px)_minmax(240px,1fr)_auto_minmax(120px,150px)] lg:items-end">
+                  <Input
+                    label="Filter by date"
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="bg-white"
+                    disabled={isEditOpen}
+                  />
+
+                  <Select
+                    label="Filter by company"
+                    value={selectedCompany}
+                    onChange={(e) => setSelectedCompany(e.target.value)}
+                    placeholder="All companies"
+                    options={companyOptions}
+                    className="bg-white"
+                    disabled={isEditOpen}
+                  />
+
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    onClick={() => setSelectedCompany('')}
+                    disabled={!selectedCompany || isEditOpen}
+                    className="h-10 px-5"
+                  >
+                    Clear
+                  </Button>
+
+                  <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                      Employees
+                    </p>
+                    <p className="text-xl font-semibold text-slate-900">
+                      {filteredSummary.length}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
             <Table
-              data={summary}
+              data={filteredSummary}
               columns={columns}
               keyExtractor={(item) => item.id}
               isLoading={isLoading}
@@ -503,6 +675,110 @@ export const AttendancePage = () => {
         isGenerating={isReportGenerating}
         initialDate={date}
       />
+
+      <Modal
+        isOpen={isDeleteOpen}
+        onClose={closeDelete}
+        title={deleteRow ? `Delete Attendance - ${deleteRow.name}` : 'Delete Attendance'}
+      >
+        <div className="space-y-5">
+          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            This will delete the selected attendance row and the work sessions found inside the same attendance period.
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Employee</p>
+              <p className="mt-1 font-semibold text-slate-900">{deleteRow?.name || '-'}</p>
+              <p className="text-sm text-slate-500">{deleteRow?.employeeId || '-'}</p>
+            </div>
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Company</p>
+              <p className="mt-1 font-semibold text-slate-900">{deleteRow?.company || '-'}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="rounded-md border border-slate-200 px-3 py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Check In</p>
+              <div className="mt-1"><AttendanceDateTimeCell value={deleteRow?.checkIn} /></div>
+            </div>
+            <div className="rounded-md border border-slate-200 px-3 py-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Check Out</p>
+              <div className="mt-1">
+                <CheckoutDateTimeCell
+                  value={deleteRow?.checkOut}
+                  isAutoCheckout={deleteRow?.isAutoCheckout}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-slate-900">
+                Work sessions in this attendance period
+              </h4>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                {isDeletePreviewLoading ? '...' : `${deletePreview?.workSessions?.length || 0} session(s)`}
+              </span>
+            </div>
+
+            {isDeletePreviewLoading ? (
+              <div className="rounded-md border border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+                Loading work sessions...
+              </div>
+            ) : deletePreview?.workSessions?.length > 0 ? (
+              <div className="max-h-64 overflow-auto rounded-md border border-slate-200">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
+                    <tr>
+                      <th className="px-3 py-2">Process</th>
+                      <th className="px-3 py-2">Start</th>
+                      <th className="px-3 py-2">End</th>
+                      <th className="px-3 py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {deletePreview.workSessions.map((session) => (
+                      <tr key={session._id}>
+                        <td className="px-3 py-2 text-slate-900">{session.processName || '-'}</td>
+                        <td className="px-3 py-2"><AttendanceDateTimeCell value={session.startTime} /></td>
+                        <td className="px-3 py-2">
+                          {session.endTime ? <AttendanceDateTimeCell value={session.endTime} /> : '-'}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge variant={session.endTime ? 'success' : 'warning'}>
+                            {session.endTime ? 'Ended' : 'Active'}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="rounded-md border border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+                No work sessions found for this attendance period.
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={closeDelete} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmDelete}
+              isLoading={isDeleting}
+              disabled={isDeletePreviewLoading}
+            >
+              Delete
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={isEditOpen}
