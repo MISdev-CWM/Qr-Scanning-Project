@@ -353,7 +353,7 @@ export const AnalyticsPage = () => {
       className: 'text-right',
     },
     {
-      header: 'Idle (hrs)',
+      header: 'In-Transition (hrs)',
       accessor: (row) => formatHoursMinutes(row.idleMinutes, row.idleHours),
       className: 'text-right',
     },
@@ -365,7 +365,7 @@ export const AnalyticsPage = () => {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Analytics</h1>
-            <p className="text-slate-600">Manpower work hours and idle analytics (company-wise)</p>
+            <p className="text-slate-600">Manpower work hours and In-Transition analytics (company-wise)</p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
@@ -427,7 +427,7 @@ export const AnalyticsPage = () => {
               />
             </Card>
 
-            <Card title={`Daily employee idle time — ${date}`}>
+            <Card title={`Daily employee In-Transition time — ${date}`}>
               <Table
                 data={idleRows}
                 columns={idleColumns}
