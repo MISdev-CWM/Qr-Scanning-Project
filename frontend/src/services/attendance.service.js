@@ -191,3 +191,41 @@ export const createManualAttendanceLog = async ({ employeeId, companyId, scanTyp
   })
   return response.data?.attendance || response.data
 }
+
+export const previewAttendanceRecordDelete = async ({
+  attendanceLogIds,
+  employeeId,
+  workDate,
+  checkInTime,
+  checkOutTime,
+  expectedScanTypes,
+}) => {
+  const response = await api.post('/api/attendance/records/delete-preview', {
+    attendanceLogIds,
+    employeeId,
+    workDate,
+    checkInTime,
+    checkOutTime,
+    expectedScanTypes,
+  })
+  return response.data
+}
+
+export const deleteAttendanceRecord = async ({
+  attendanceLogIds,
+  employeeId,
+  workDate,
+  checkInTime,
+  checkOutTime,
+  expectedScanTypes,
+}) => {
+  const response = await api.post('/api/attendance/records/delete', {
+    attendanceLogIds,
+    employeeId,
+    workDate,
+    checkInTime,
+    checkOutTime,
+    expectedScanTypes,
+  })
+  return response.data
+}

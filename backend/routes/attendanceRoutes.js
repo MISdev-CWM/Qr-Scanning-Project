@@ -1,5 +1,5 @@
 import express from 'express';
-import { scanAtSecurity, getAttendanceSummary, getDailySummary, getRecentAttendanceLogs, updateAttendanceLogScanTime, getNonCheckoutEmployees, getOTSummary, createManualAttendanceLog } from '../controllers/attendanceController.js';
+import { scanAtSecurity, getAttendanceSummary, getDailySummary, getRecentAttendanceLogs, updateAttendanceLogScanTime, getNonCheckoutEmployees, getOTSummary, createManualAttendanceLog, previewAttendanceRecordDelete, deleteAttendanceRecord } from '../controllers/attendanceController.js';
 import { auth, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -27,5 +27,9 @@ router.put('/logs/:id/scan-time', auth, authorize('admin'), updateAttendanceLogS
 
 // Admin-only: create a manual check-in/check-out log if it doesn't exist
 router.post('/logs/manual', auth, authorize('admin'), createManualAttendanceLog);
+
+// Admin-only: preview/delete an attendance row and matching work sessions
+router.post('/records/delete-preview', auth, authorize('admin'), previewAttendanceRecordDelete);
+router.post('/records/delete', auth, authorize('admin'), deleteAttendanceRecord);
 
 export default router;

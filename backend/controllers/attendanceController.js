@@ -12,6 +12,8 @@ const AUTO_CHECKOUT_HOURS_BY_TYPE = {
   casual: 25,
 };
 
+const isMongoObjectId = (value) => typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value);
+
 const toWorkDate = (date) => {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
   return date.toISOString().slice(0, 10);
@@ -23,6 +25,23 @@ const getEmployeeKey = (log) =>
   log.employeeId?._id?.toString() || log.employeeId?.toString() || 'unknown';
 
 const isAfter = (later, earlier) => new Date(later).getTime() > new Date(earlier).getTime();
+
+const getDayBounds = (date) => {
+  const parts = String(date || '').split('-').map((value) => Number(value));
+  if (parts.length !== 3 || parts.some((value) => Number.isNaN(value))) {
+    const now = new Date();
+    return {
+      start: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0),
+      end: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999),
+    };
+  }
+
+  const [year, month, day] = parts;
+  return {
+    start: new Date(year, month - 1, day, 0, 0, 0, 0),
+    end: new Date(year, month - 1, day, 23, 59, 59, 999),
+  };
+};
 
 const getAutoCheckoutHours = (employeeType) => {
   const normalizedType = String(employeeType || '').trim().toLowerCase();
@@ -653,6 +672,314 @@ export const createManualAttendanceLog = async (req, res) => {
     return res.status(500).json({
       message: 'Error creating manual attendance log',
       error: err.message
+    });
+  }
+};
+
+const getAttendanceDeleteContext = async ({
+  attendanceLogIds,
+  employeeId,
+  workDate,
+  checkInTime,
+  checkOutTime,
+  expectedScanTypes,
+}) => {
+  const logIds = Array.from(new Set((Array.isArray(attendanceLogIds) ? attendanceLogIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(isMongoObjectId)));
+  const requestedEmployeeId = String(employeeId || '').trim();
+  const parsedCheckInTime = checkInTime ? new Date(checkInTime) : null;
+  const parsedCheckOutTime = checkOutTime ? new Date(checkOutTime) : null;
+  const hasValidCheckInTime = parsedCheckInTime && !Number.isNaN(parsedCheckInTime.getTime());
+  const hasValidCheckOutTime = parsedCheckOutTime && !Number.isNaN(parsedCheckOutTime.getTime());
+  const expectsCheckIn = Boolean(expectedScanTypes?.in || hasValidCheckInTime);
+  const expectsCheckOut = Boolean(expectedScanTypes?.out || hasValidCheckOutTime);
+
+  if (logIds.length === 0 && (!isMongoObjectId(requestedEmployeeId) || (!hasValidCheckInTime && !hasValidCheckOutTime))) {
+    const error = new Error('At least one attendance log id or row time is required');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let seedAttendanceLogs = logIds.length > 0
+    ? await AttendanceLog.find({
+      _id: { $in: logIds },
+      scanLocation: 'SECURITY',
+    })
+      .sort({ scanTime: 1 })
+      .populate('employeeId companyId qrId')
+    : [];
+
+  if (seedAttendanceLogs.length === 0 && isMongoObjectId(requestedEmployeeId)) {
+    const timeLookups = [];
+    if (hasValidCheckInTime) {
+      timeLookups.push({ scanType: 'IN', scanTime: parsedCheckInTime });
+    }
+    if (hasValidCheckOutTime) {
+      timeLookups.push({ scanType: 'OUT', scanTime: parsedCheckOutTime });
+    }
+
+    if (timeLookups.length > 0) {
+      seedAttendanceLogs = await AttendanceLog.find({
+        employeeId: requestedEmployeeId,
+        scanLocation: 'SECURITY',
+        $or: timeLookups,
+      })
+        .sort({ scanTime: 1 })
+        .populate('employeeId companyId qrId');
+    }
+  }
+
+  if (seedAttendanceLogs.length === 0) {
+    const error = new Error('Attendance record not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const resolvedEmployeeId = getIdValue(seedAttendanceLogs[0].employeeId)?.toString();
+  if (!resolvedEmployeeId) {
+    const error = new Error('Attendance record does not have a valid employee');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (requestedEmployeeId && requestedEmployeeId !== resolvedEmployeeId) {
+    const error = new Error('Attendance record does not belong to the selected employee');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const resolvedCompanyId = getIdValue(seedAttendanceLogs[0].companyId)?.toString();
+
+  const hasDifferentEmployee = seedAttendanceLogs.some(
+    (log) => getIdValue(log.employeeId)?.toString() !== resolvedEmployeeId
+  );
+  if (hasDifferentEmployee) {
+    const error = new Error('All selected attendance logs must belong to the same employee');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const hasDifferentCompany = seedAttendanceLogs.some(
+    (log) => getIdValue(log.companyId)?.toString() !== resolvedCompanyId
+  );
+  if (hasDifferentCompany) {
+    const error = new Error('All selected attendance logs must belong to the same company');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const sameTimestamp = (left, right) =>
+    new Date(left).getTime() === new Date(right).getTime();
+
+  const findExactAttendanceLog = async (scanType, scanTime, selectedLog) => {
+    if (!scanTime || Number.isNaN(scanTime.getTime())) return selectedLog || null;
+
+    const scanLabel = scanType === 'IN' ? 'check-in' : 'check-out';
+
+    if (selectedLog) {
+      if (sameTimestamp(selectedLog.scanTime, scanTime)) {
+        return selectedLog;
+      }
+
+      const error = new Error(`Selected ${scanLabel} log does not match this attendance row`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const query = {
+      employeeId: resolvedEmployeeId,
+      scanLocation: 'SECURITY',
+      scanType,
+      scanTime,
+    };
+
+    if (resolvedCompanyId) {
+      query.companyId = resolvedCompanyId;
+    }
+
+    const matches = await AttendanceLog.find(query);
+    if (matches.length > 1) {
+      const error = new Error(`Multiple matching ${scanLabel} logs found for this attendance row`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    return matches[0] || null;
+  };
+
+  let firstIn = seedAttendanceLogs.find((log) => log.scanType === 'IN');
+  let lastOut = [...seedAttendanceLogs].reverse().find((log) => log.scanType === 'OUT');
+
+  if (hasValidCheckInTime) {
+    const exactIn = await findExactAttendanceLog('IN', parsedCheckInTime, firstIn);
+    if (exactIn) {
+      firstIn = exactIn;
+    } else if (!firstIn || !sameTimestamp(firstIn.scanTime, parsedCheckInTime)) {
+      const error = new Error('Matching check-in log was not found for this attendance row');
+      error.statusCode = 404;
+      throw error;
+    }
+  }
+
+  if (hasValidCheckOutTime) {
+    const exactOut = await findExactAttendanceLog('OUT', parsedCheckOutTime, lastOut);
+    if (exactOut) {
+      lastOut = exactOut;
+    } else if (!lastOut || !sameTimestamp(lastOut.scanTime, parsedCheckOutTime)) {
+      const error = new Error('Matching check-out log was not found for this attendance row');
+      error.statusCode = 404;
+      throw error;
+    }
+  }
+
+  if (!firstIn && lastOut && expectsCheckIn) {
+    firstIn = await findOpenCheckInForCheckout({
+      employeeId: getIdValue(lastOut.employeeId),
+      companyId: getIdValue(lastOut.companyId),
+      scanLocation: lastOut.scanLocation,
+      outTime: lastOut.scanTime,
+      excludeOutId: lastOut._id,
+    });
+  }
+
+  if (firstIn && !lastOut && expectsCheckOut) {
+    lastOut = await findCheckoutForOpenCheckIn(firstIn);
+  }
+
+  const resolvedLogIds = Array.from(new Set([
+    ...seedAttendanceLogs.map((log) => log._id?.toString()),
+    firstIn?._id?.toString(),
+    lastOut?._id?.toString(),
+  ].filter(Boolean)));
+
+  const attendanceLogs = await AttendanceLog.find({
+    _id: { $in: resolvedLogIds },
+    scanLocation: 'SECURITY',
+  })
+    .sort({ scanTime: 1 })
+    .populate('employeeId companyId qrId');
+
+  const resolvedHasDifferentEmployee = attendanceLogs.some(
+    (log) => getIdValue(log.employeeId)?.toString() !== resolvedEmployeeId
+  );
+  if (resolvedHasDifferentEmployee) {
+    const error = new Error('Resolved attendance logs must belong to the same employee');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const resolvedHasDifferentCompany = attendanceLogs.some(
+    (log) => getIdValue(log.companyId)?.toString() !== resolvedCompanyId
+  );
+  if (resolvedHasDifferentCompany) {
+    const error = new Error('Resolved attendance logs must belong to the same company');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  firstIn = hasValidCheckInTime
+    ? attendanceLogs.find((log) => log.scanType === 'IN' && sameTimestamp(log.scanTime, parsedCheckInTime))
+    : attendanceLogs.find((log) => log.scanType === 'IN');
+  lastOut = hasValidCheckOutTime
+    ? [...attendanceLogs].reverse().find((log) => log.scanType === 'OUT' && sameTimestamp(log.scanTime, parsedCheckOutTime))
+    : [...attendanceLogs].reverse().find((log) => log.scanType === 'OUT');
+
+  if (expectsCheckIn && !firstIn) {
+    const error = new Error('Matching check-in log was not found for this attendance row');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (expectsCheckOut && !lastOut) {
+    const error = new Error('Matching check-out log was not found for this attendance row');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (firstIn && lastOut && new Date(lastOut.scanTime).getTime() < new Date(firstIn.scanTime).getTime()) {
+    const error = new Error('Check-out time cannot be before the matching check-in time');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const resolvedWorkDate = firstIn?.workDate || lastOut?.workDate || attendanceLogs[0]?.workDate || workDate;
+  const dayBounds = getDayBounds(resolvedWorkDate);
+
+  let periodStart = firstIn?.scanTime ? new Date(firstIn.scanTime) : dayBounds.start;
+  let periodEnd = lastOut?.scanTime ? new Date(lastOut.scanTime) : new Date();
+
+  if (Number.isNaN(periodStart.getTime())) periodStart = dayBounds.start;
+  if (Number.isNaN(periodEnd.getTime())) periodEnd = dayBounds.end;
+  if (periodEnd < periodStart) periodEnd = periodStart;
+
+  const workSessions = await WorkSession.find({
+    employeeId: resolvedEmployeeId,
+    startTime: { $lte: periodEnd },
+    $or: [
+      { endTime: { $exists: false } },
+      { endTime: null },
+      { endTime: { $gte: periodStart } },
+    ],
+  })
+    .sort({ startTime: 1 })
+    .populate('employeeId companyId qrId');
+
+  return {
+    attendanceLogs,
+    workSessions,
+    periodStart,
+    periodEnd,
+    workDate: resolvedWorkDate,
+  };
+};
+
+// POST /api/attendance/records/delete-preview
+// Admin-only: preview attendance logs and overlapping work sessions before deletion.
+export const previewAttendanceRecordDelete = async (req, res) => {
+  try {
+    const context = await getAttendanceDeleteContext(req.body || {});
+
+    return res.status(200).json({
+      workDate: context.workDate,
+      periodStart: context.periodStart,
+      periodEnd: context.periodEnd,
+      attendanceLogs: context.attendanceLogs,
+      workSessions: context.workSessions,
+    });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({
+      message: err.message || 'Error preparing attendance delete preview',
+      error: err.message,
+    });
+  }
+};
+
+// POST /api/attendance/records/delete
+// Admin-only: delete selected attendance logs and overlapping work sessions.
+export const deleteAttendanceRecord = async (req, res) => {
+  try {
+    const context = await getAttendanceDeleteContext(req.body || {});
+    const attendanceLogIds = context.attendanceLogs.map((log) => log._id);
+    const workSessionIds = context.workSessions.map((session) => session._id);
+
+    const attendanceDeleteResult = await AttendanceLog.deleteMany({
+      _id: { $in: attendanceLogIds },
+    });
+
+    const workSessionDeleteResult = workSessionIds.length > 0
+      ? await WorkSession.deleteMany({ _id: { $in: workSessionIds } })
+      : { deletedCount: 0 };
+
+    return res.status(200).json({
+      message: 'Attendance record deleted successfully',
+      deletedAttendanceCount: attendanceDeleteResult.deletedCount || 0,
+      deletedWorkSessionCount: workSessionDeleteResult.deletedCount || 0,
+    });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({
+      message: err.message || 'Error deleting attendance record',
+      error: err.message,
     });
   }
 };
