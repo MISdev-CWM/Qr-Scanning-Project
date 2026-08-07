@@ -97,37 +97,43 @@ const findOpenCheckInForCheckout = async ({ employeeId, companyId, scanLocation,
   return alreadyCheckedOut ? null : lastInLog;
 };
 
-const getManualAttendanceWindow = async ({ openInLog, employeeType, now }) => {
-  if (!openInLog?.scanTime) {
-    return { isWithinWindow: false, windowEnd: null, windowHours: getManualAttendanceWindowHours(employeeType) };
-  }
-
-  const employeeId = getIdValue(openInLog.employeeId);
-  const companyId = getIdValue(openInLog.companyId);
+const getActiveAttendanceWindowForCheckIn = async ({ employeeId, companyId, scanLocation, employeeType, now }) => {
   const windowHours = getManualAttendanceWindowHours(employeeType);
+  const searchStart = new Date(now.getTime() - windowHours * 2 * 60 * 60 * 1000);
 
-  let firstInLog = openInLog;
-  if (employeeId && companyId && openInLog.workDate) {
-    firstInLog = await AttendanceLog.findOne({
-      employeeId,
-      companyId,
-      scanLocation: openInLog.scanLocation,
-      scanType: 'IN',
-      workDate: openInLog.workDate,
-    }).sort({ scanTime: 1 }) || openInLog;
+  if (!employeeId || !companyId || !scanLocation) {
+    return null;
   }
 
-  const windowStart = new Date(firstInLog.scanTime);
-  if (Number.isNaN(windowStart.getTime())) {
-    return { isWithinWindow: false, windowEnd: null, windowHours };
+  const recentCheckIns = await AttendanceLog.find({
+    employeeId,
+    companyId,
+    scanLocation,
+    scanType: 'IN',
+    scanTime: {
+      $gte: searchStart,
+      $lte: now,
+    },
+  }).sort({ scanTime: 1 });
+
+  let activeWindow = null;
+  for (const checkInLog of recentCheckIns) {
+    const checkInTime = new Date(checkInLog.scanTime);
+    if (Number.isNaN(checkInTime.getTime())) continue;
+
+    if (!activeWindow || checkInTime.getTime() > activeWindow.windowEnd.getTime()) {
+      activeWindow = {
+        firstInLog: checkInLog,
+        windowEnd: new Date(checkInTime.getTime() + windowHours * 60 * 60 * 1000),
+      };
+    }
   }
 
-  const windowEnd = new Date(windowStart.getTime() + windowHours * 60 * 60 * 1000);
-  return {
-    isWithinWindow: now.getTime() <= windowEnd.getTime(),
-    windowEnd,
-    windowHours,
-  };
+  if (!activeWindow || now.getTime() > activeWindow.windowEnd.getTime()) {
+    return null;
+  }
+
+  return activeWindow;
 };
 
 const findRecentAttendanceScan = ({ employeeId, companyId, scanLocation, now }) => {
@@ -503,26 +509,26 @@ export const scanAtSecurity = async (req, res) => {
       outTime: now,
     });
 
-    let openInLogWithinManualWindow = openInLogForCheckout;
-    if (openInLogForCheckout) {
-      const manualWindow = await getManualAttendanceWindow({
-        openInLog: openInLogForCheckout,
+    // A checkout is always allowed while there is an open attendance IN.
+    // The 12/24-hour window only controls whether a new IN stays in the
+    // current attendance window after the employee has already checked OUT.
+    const activeAttendanceWindow = !openInLogForCheckout
+      ? await getActiveAttendanceWindowForCheckIn({
+        employeeId,
+        companyId,
+        scanLocation: context,
         employeeType: employeeForRules.employeeType,
         now,
-      });
-
-      if (!manualWindow.isWithinWindow) {
-        return res.status(400).json({
-          message: `Attendance check-in/check-out window expired. ${employeeForRules.employeeType || 'Employee'} employees can scan attendance within ${manualWindow.windowHours} hours from the first check-in.`,
-          windowExpired: true,
-          windowEnd: manualWindow.windowEnd,
-        });
-      }
-    }
+      })
+      : null;
 
     // Accept scanType from request, default to OUT only when there is a valid
     // open check-in. Otherwise, start a new IN.
-    let type = scanType || (openInLogWithinManualWindow ? 'OUT' : 'IN');
+    let type = scanType || (openInLogForCheckout ? 'OUT' : 'IN');
+
+    if (type === 'IN' && activeAttendanceWindow?.firstInLog?.workDate) {
+      workDate = activeAttendanceWindow.firstInLog.workDate;
+    }
 
     // If checking OUT, inherit the workDate from the latest open IN scan.
     // Overnight shifts must stay under the original check-in workDate, even if checkout
@@ -540,7 +546,7 @@ export const scanAtSecurity = async (req, res) => {
         return res.status(400).json({ message: 'Working Session is not ended' });
       }
 
-      const openInLog = openInLogWithinManualWindow || await findOpenCheckInForCheckout({
+      const openInLog = openInLogForCheckout || await findOpenCheckInForCheckout({
         employeeId,
         companyId,
         scanLocation: context,
