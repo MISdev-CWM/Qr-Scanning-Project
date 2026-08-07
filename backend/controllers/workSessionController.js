@@ -5,7 +5,7 @@ import Company from '../models/Company.js';
 import AttendanceLog from '../models/AttendanceLog.js';
 import Process from '../models/Process.js';
 
-const DUPLICATE_SCAN_WINDOW_MS = 5 * 60 * 1000;
+const DUPLICATE_SCAN_WINDOW_MS = 1 * 60 * 1000;
 
 const isMongoObjectId = (value) => typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value);
 
