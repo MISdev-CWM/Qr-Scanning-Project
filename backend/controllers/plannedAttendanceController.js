@@ -32,6 +32,15 @@ const getPlannedAttendanceShiftBounds = (date) => {
   return { start, end };
 };
 
+const getSriLankaTimeOnDate = (date, hour, minute = 0) => {
+  const [year, month, day] = String(date).split('-').map(Number);
+  const sriLankaOffsetMinutes = 5 * 60 + 30;
+
+  return new Date(
+    Date.UTC(year, month - 1, day, hour, minute) - sriLankaOffsetMinutes * 60 * 1000
+  );
+};
+
 const getPlannedAttendanceShift = (scanTime) => {
   const { hour, minute } = getSriLankaDateTimeParts(scanTime);
   const minutesAfterMidnight = hour * 60 + minute;
@@ -95,35 +104,64 @@ export const getPlannedVsActualAttendance = async (req, res) => {
     const queryDate = new Date(date);
     queryDate.setHours(0, 0, 0, 0);
     const { start: shiftPeriodStart, end: shiftPeriodEnd } = getPlannedAttendanceShiftBounds(date);
+    const nightShiftEligibilityTime = getSriLankaTimeOnDate(date, 21);
     const plannedAttendance = await PlannedAttendance.find({ date: queryDate }).populate('companyId', 'companyName companyId');
 
     // Count each employee once for the shift where they checked in. A later
     // checkout must not reduce the Actual Attended total for that shift.
-    const shiftCheckIns = await AttendanceLog.find({
-      scanLocation: 'SECURITY',
-      scanType: 'IN',
-      scanTime: { $gte: shiftPeriodStart, $lt: shiftPeriodEnd },
-    })
-      .sort({ scanTime: 1, _id: 1 })
-      .select('employeeId companyId scanTime');
+    const [shiftCheckIns, shiftEventsUntilNightEligibility] = await Promise.all([
+      AttendanceLog.find({
+        scanLocation: 'SECURITY',
+        scanType: 'IN',
+        scanTime: { $gte: shiftPeriodStart, $lt: shiftPeriodEnd },
+      })
+        .sort({ scanTime: 1, _id: 1 })
+        .select('employeeId companyId scanTime'),
+      AttendanceLog.find({
+        scanLocation: 'SECURITY',
+        scanTime: { $gte: shiftPeriodStart, $lte: nightShiftEligibilityTime },
+      })
+        .sort({ scanTime: 1, _id: 1 })
+        .select('employeeId companyId scanType scanTime')
+        .populate('employeeId', 'employeeType'),
+    ]);
 
-    const countedEmployeeIds = new Set();
+    const firstCheckInByEmployee = new Map();
     const actualAttendance = shiftCheckIns.reduce((counts, checkIn) => {
       const companyId = String(checkIn.companyId);
       const employeeId = String(checkIn.employeeId);
 
       // The first IN assigns the employee to one planning shift. Re-entry
       // scans later in the same attendance period must not count them again.
-      if (countedEmployeeIds.has(employeeId)) {
+      if (firstCheckInByEmployee.has(employeeId)) {
         return counts;
       }
 
-      countedEmployeeIds.add(employeeId);
+      firstCheckInByEmployee.set(employeeId, checkIn);
       const shift = getPlannedAttendanceShift(checkIn.scanTime);
       const companyShiftKey = `${companyId}:${shift}`;
       counts[companyShiftKey] = (counts[companyShiftKey] || 0) + 1;
       return counts;
     }, {});
+
+    const latestEventByEmployee = new Map(
+      shiftEventsUntilNightEligibility.map((event) => [String(event.employeeId?._id || event.employeeId), event])
+    );
+
+    // A permanent employee who started in the Day shift and is still checked
+    // in at 9:00 PM is also part of the Night shift. An OUT at or before
+    // 9:00 PM prevents this additional Night count.
+    firstCheckInByEmployee.forEach((checkIn, employeeId) => {
+      if (getPlannedAttendanceShift(checkIn.scanTime) !== 'Day') return;
+
+      const latestEvent = latestEventByEmployee.get(employeeId);
+      if (latestEvent?.employeeId?.employeeType !== 'permanent' || latestEvent.scanType !== 'IN') {
+        return;
+      }
+
+      const companyShiftKey = `${checkIn.companyId}:Night`;
+      actualAttendance[companyShiftKey] = (actualAttendance[companyShiftKey] || 0) + 1;
+    });
 
     const companies = await Company.find({
       employeeTypeAllowed: { $in: ['manpower', 'permanent', 'casual'] }
