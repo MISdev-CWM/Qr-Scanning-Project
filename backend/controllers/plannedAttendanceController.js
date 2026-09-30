@@ -105,6 +105,7 @@ export const getPlannedVsActualAttendance = async (req, res) => {
     queryDate.setHours(0, 0, 0, 0);
     const { start: shiftPeriodStart, end: shiftPeriodEnd } = getPlannedAttendanceShiftBounds(date);
     const nightShiftEligibilityTime = getSriLankaTimeOnDate(date, 21);
+    const hasReachedNightShiftEligibilityTime = new Date() >= nightShiftEligibilityTime;
     const plannedAttendance = await PlannedAttendance.find({ date: queryDate }).populate('companyId', 'companyName companyId');
 
     // Count each employee once for the shift where they checked in. A later
@@ -149,19 +150,22 @@ export const getPlannedVsActualAttendance = async (req, res) => {
     );
 
     // A permanent employee who started in the Day shift and is still checked
-    // in at 9:00 PM is also part of the Night shift. An OUT at or before
-    // 9:00 PM prevents this additional Night count.
-    firstCheckInByEmployee.forEach((checkIn, employeeId) => {
-      if (getPlannedAttendanceShift(checkIn.scanTime) !== 'Day') return;
+    // in at 9:00 PM is also part of the Night shift. Do not project this
+    // count before 9:00 PM on the selected day; an OUT at or before the
+    // cutoff prevents the additional Night count.
+    if (hasReachedNightShiftEligibilityTime) {
+      firstCheckInByEmployee.forEach((checkIn, employeeId) => {
+        if (getPlannedAttendanceShift(checkIn.scanTime) !== 'Day') return;
 
-      const latestEvent = latestEventByEmployee.get(employeeId);
-      if (latestEvent?.employeeId?.employeeType !== 'permanent' || latestEvent.scanType !== 'IN') {
-        return;
-      }
+        const latestEvent = latestEventByEmployee.get(employeeId);
+        if (latestEvent?.employeeId?.employeeType !== 'permanent' || latestEvent.scanType !== 'IN') {
+          return;
+        }
 
-      const companyShiftKey = `${checkIn.companyId}:Night`;
-      actualAttendance[companyShiftKey] = (actualAttendance[companyShiftKey] || 0) + 1;
-    });
+        const companyShiftKey = `${checkIn.companyId}:Night`;
+        actualAttendance[companyShiftKey] = (actualAttendance[companyShiftKey] || 0) + 1;
+      });
+    }
 
     const companies = await Company.find({
       employeeTypeAllowed: { $in: ['manpower', 'permanent', 'casual'] }
